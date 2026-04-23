@@ -136,22 +136,34 @@ async function handleConnectTunnel(
     "",
     "",
   ].join("\r\n");
-  upstreamSocket.write(connectRequest);
+  if (!writeSocket(upstreamSocket, connectRequest)) {
+    upstreamSocket.destroy();
+    clientSocket.destroy();
+    return;
+  }
 
   const { headerBuffer, initialBody: upstreamInitialBody } = await readResponseHead(upstreamSocket);
   const statusLine = headerBuffer.toString("latin1").split("\r\n", 1)[0] || "";
   if (!/^HTTP\/1\.[01]\s+200\b/.test(statusLine)) {
-    clientSocket.end(Buffer.concat([headerBuffer, upstreamInitialBody]));
+    endSocket(clientSocket, Buffer.concat([headerBuffer, upstreamInitialBody]));
     upstreamSocket.destroy();
     return;
   }
 
-  clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-  if (upstreamInitialBody.length > 0) {
-    clientSocket.write(upstreamInitialBody);
+  if (!writeSocket(clientSocket, "HTTP/1.1 200 Connection Established\r\n\r\n")) {
+    upstreamSocket.destroy();
+    clientSocket.destroy();
+    return;
   }
-  if (initialBody.length > 0) {
-    upstreamSocket.write(initialBody);
+  if (upstreamInitialBody.length > 0 && !writeSocket(clientSocket, upstreamInitialBody)) {
+    upstreamSocket.destroy();
+    clientSocket.destroy();
+    return;
+  }
+  if (initialBody.length > 0 && !writeSocket(upstreamSocket, initialBody)) {
+    upstreamSocket.destroy();
+    clientSocket.destroy();
+    return;
   }
 
   pipeSockets(clientSocket, upstreamSocket);
@@ -170,9 +182,15 @@ async function handleHttpProxyRequest(
 
   await onceConnected(upstreamSocket);
 
-  upstreamSocket.write(rewriteHttpProxyRequest(headerText, proxy));
-  if (initialBody.length > 0) {
-    upstreamSocket.write(initialBody);
+  if (!writeSocket(upstreamSocket, rewriteHttpProxyRequest(headerText, proxy))) {
+    upstreamSocket.destroy();
+    clientSocket.destroy();
+    return;
+  }
+  if (initialBody.length > 0 && !writeSocket(upstreamSocket, initialBody)) {
+    upstreamSocket.destroy();
+    clientSocket.destroy();
+    return;
   }
 
   pipeSockets(clientSocket, upstreamSocket);
@@ -294,9 +312,65 @@ function pipeSockets(clientSocket: Socket, upstreamSocket: Socket) {
 
 function registerSocket(sockets: Set<Socket>, socket: Socket) {
   sockets.add(socket);
+  socket.on("error", (error) => {
+    if (isIgnorableSocketError(error)) {
+      return;
+    }
+    log("warn", "proxy-bridge", "Socket error", String(error));
+  });
   socket.once("close", () => {
     sockets.delete(socket);
   });
+}
+
+function writeSocket(socket: Socket, chunk: string | Buffer) {
+  if (!isSocketWritable(socket)) {
+    return false;
+  }
+
+  try {
+    socket.write(chunk);
+    return true;
+  } catch (error) {
+    if (isIgnorableSocketError(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function endSocket(socket: Socket, chunk?: string | Buffer) {
+  if (!isSocketWritable(socket)) {
+    return false;
+  }
+
+  try {
+    if (chunk === undefined) {
+      socket.end();
+    } else {
+      socket.end(chunk);
+    }
+    return true;
+  } catch (error) {
+    if (isIgnorableSocketError(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function isSocketWritable(socket: Socket) {
+  const candidate = socket as Socket & { writableEnded?: boolean };
+  return !socket.destroyed && socket.writable && candidate.writableEnded !== true;
+}
+
+function isIgnorableSocketError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const code = (error as Error & { code?: string }).code;
+  return code === "ERR_SOCKET_CLOSED" || code === "EPIPE" || code === "ECONNRESET";
 }
 
 function onceConnected(socket: Socket): Promise<void> {

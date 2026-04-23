@@ -1,8 +1,32 @@
+import { mkdtemp, rm } from "fs/promises";
 import { connect, createServer as createNetServer, type Socket } from "net";
+import { tmpdir } from "os";
+import { join } from "path";
 import { expect, test } from "bun:test";
 import { ensureProxyBridge, stopProxyBridge } from "../src/proxy-bridge";
+import { ensureDirs } from "../src/store";
 
 const AUTH_HEADER = `Basic ${Buffer.from("bridge-user:bridge-pass").toString("base64")}`;
+
+async function withIsolatedProxyBridgeEnv<T>(label: string, run: () => Promise<T>) {
+  const rootDir = await mkdtemp(join(tmpdir(), `bw-use-proxy-bridge-${label}-`));
+  const dataDir = join(rootDir, "data");
+  const originalDataDir = process.env.BW_USE_DATA_DIR;
+
+  process.env.BW_USE_DATA_DIR = dataDir;
+
+  try {
+    await ensureDirs();
+    return await run();
+  } finally {
+    if (originalDataDir === undefined) {
+      delete process.env.BW_USE_DATA_DIR;
+    } else {
+      process.env.BW_USE_DATA_DIR = originalDataDir;
+    }
+    await rm(rootDir, { recursive: true, force: true });
+  }
+}
 
 function listen(server: { listen(port: number, host: string, cb?: () => void): void; address(): any }) {
   return new Promise<number>((resolve, reject) => {
@@ -32,71 +56,124 @@ function closeServer(server: { close(cb?: () => void): void }) {
 }
 
 test("proxy bridge 会为 CONNECT 隧道补充 Proxy-Authorization", async () => {
-  const targetServer = createNetServer((socket) => {
-    socket.on("data", (chunk) => {
-      socket.write(Buffer.concat([Buffer.from("echo:"), Buffer.from(chunk)]));
+  await withIsolatedProxyBridgeEnv("connect", async () => {
+    const targetServer = createNetServer((socket) => {
+      socket.on("data", (chunk) => {
+        socket.write(Buffer.concat([Buffer.from("echo:"), Buffer.from(chunk)]));
+      });
     });
-  });
-  const targetPort = await listen(targetServer);
+    const targetPort = await listen(targetServer);
 
-  const upstreamAuthHeaders: string[] = [];
-  const upstreamProxy = createNetServer((clientSocket) => {
-    captureHead(clientSocket).then(async ({ headerText, initialBody }) => {
-      const lines = headerText.split("\r\n").filter(Boolean);
-      upstreamAuthHeaders.push(lines.find((line) => /^Proxy-Authorization:/i.test(line)) || "");
-      const connectLine = lines[0] || "";
-      const authority = connectLine.split(/\s+/)[1] || "";
-      const [host, portText] = authority.split(":");
-      const targetSocket = connect(Number(portText), host || "127.0.0.1");
+    const upstreamAuthHeaders: string[] = [];
+    const upstreamProxy = createNetServer((clientSocket) => {
+      captureHead(clientSocket).then(async ({ headerText, initialBody }) => {
+        const lines = headerText.split("\r\n").filter(Boolean);
+        upstreamAuthHeaders.push(lines.find((line) => /^Proxy-Authorization:/i.test(line)) || "");
+        const connectLine = lines[0] || "";
+        const authority = connectLine.split(/\s+/)[1] || "";
+        const [host, portText] = authority.split(":");
+        const targetSocket = connect(Number(portText), host || "127.0.0.1");
 
-      await onceConnected(targetSocket);
-      clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-      if (initialBody.length > 0) {
-        targetSocket.write(initialBody);
-      }
-      clientSocket.pipe(targetSocket);
-      targetSocket.pipe(clientSocket);
-      clientSocket.resume();
-      targetSocket.resume();
-    }).catch(() => {
+        await onceConnected(targetSocket);
+        clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        if (initialBody.length > 0) {
+          targetSocket.write(initialBody);
+        }
+        clientSocket.pipe(targetSocket);
+        targetSocket.pipe(clientSocket);
+        clientSocket.resume();
+        targetSocket.resume();
+      }).catch(() => {
+        clientSocket.destroy();
+      });
+    });
+    const upstreamPort = await listen(upstreamProxy);
+
+    const bridgeKey = `test-connect-${crypto.randomUUID()}`;
+    const bridge = await ensureProxyBridge(bridgeKey, {
+      host: "127.0.0.1",
+      port: upstreamPort,
+      username: "bridge-user",
+      password: "bridge-pass",
+    });
+
+    try {
+      const clientSocket = connect(bridge.port, bridge.host);
+      await onceConnected(clientSocket);
+
+      clientSocket.write([
+        `CONNECT 127.0.0.1:${targetPort} HTTP/1.1`,
+        `Host: 127.0.0.1:${targetPort}`,
+        "",
+        "",
+      ].join("\r\n"));
+
+      const { headerText } = await captureHead(clientSocket);
+      expect(headerText.startsWith("HTTP/1.1 200")).toBe(true);
+
+      clientSocket.write("ping");
+      const echoed = await readExact(clientSocket, 9);
+      expect(echoed.toString()).toBe("echo:ping");
+      expect(upstreamAuthHeaders[0]).toBe(`Proxy-Authorization: ${AUTH_HEADER}`);
+
       clientSocket.destroy();
+    } finally {
+      await stopProxyBridge(bridgeKey);
+      await closeServer(upstreamProxy);
+      await closeServer(targetServer);
+    }
+  });
+});
+
+test("proxy bridge 在客户端提前断开时不会导致进程崩溃", async () => {
+  await withIsolatedProxyBridgeEnv("disconnect", async () => {
+    const upstreamSockets = new Set<Socket>();
+    const upstreamProxy = createNetServer((clientSocket) => {
+      upstreamSockets.add(clientSocket);
+      clientSocket.once("close", () => {
+        upstreamSockets.delete(clientSocket);
+      });
+      captureHead(clientSocket)
+        .then(async () => {
+          await Bun.sleep(50);
+          clientSocket.end("HTTP/1.1 200 Connection Established\r\n\r\n");
+        })
+        .catch(() => {
+          clientSocket.destroy();
+        });
     });
+    const upstreamPort = await listen(upstreamProxy);
+
+    const bridgeKey = `test-disconnect-${crypto.randomUUID()}`;
+    const bridge = await ensureProxyBridge(bridgeKey, {
+      host: "127.0.0.1",
+      port: upstreamPort,
+      username: "bridge-user",
+      password: "bridge-pass",
+    });
+
+    try {
+      const clientSocket = connect(bridge.port, bridge.host);
+      await onceConnected(clientSocket);
+
+      clientSocket.write([
+        "CONNECT example.com:443 HTTP/1.1",
+        "Host: example.com:443",
+        "",
+        "",
+      ].join("\r\n"));
+      clientSocket.destroy();
+
+      await Bun.sleep(100);
+      expect(true).toBe(true);
+    } finally {
+      await stopProxyBridge(bridgeKey);
+      for (const socket of upstreamSockets) {
+        socket.destroy();
+      }
+      await closeServer(upstreamProxy);
+    }
   });
-  const upstreamPort = await listen(upstreamProxy);
-
-  const bridgeKey = `test-connect-${crypto.randomUUID()}`;
-  const bridge = await ensureProxyBridge(bridgeKey, {
-    host: "127.0.0.1",
-    port: upstreamPort,
-    username: "bridge-user",
-    password: "bridge-pass",
-  });
-
-  try {
-    const clientSocket = connect(bridge.port, bridge.host);
-    await onceConnected(clientSocket);
-
-    clientSocket.write([
-      `CONNECT 127.0.0.1:${targetPort} HTTP/1.1`,
-      `Host: 127.0.0.1:${targetPort}`,
-      "",
-      "",
-    ].join("\r\n"));
-
-    const { headerText } = await captureHead(clientSocket);
-    expect(headerText.startsWith("HTTP/1.1 200")).toBe(true);
-
-    clientSocket.write("ping");
-    const echoed = await readExact(clientSocket, 9);
-    expect(echoed.toString()).toBe("echo:ping");
-    expect(upstreamAuthHeaders[0]).toBe(`Proxy-Authorization: ${AUTH_HEADER}`);
-
-    clientSocket.destroy();
-  } finally {
-    await stopProxyBridge(bridgeKey);
-    await closeServer(upstreamProxy);
-    await closeServer(targetServer);
-  }
 });
 
 async function captureHead(socket: Socket) {
