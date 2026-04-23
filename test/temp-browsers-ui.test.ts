@@ -53,6 +53,10 @@ function createMockDom() {
     "temp-browser-count": createMockElement(),
     "btn-create-temp-browser": createMockElement("创建临时浏览器"),
     "btn-close-temp-browsers": createMockElement("一键关闭临时浏览器"),
+    "temp-browser-modal": createMockElement(),
+    "temp-browser-modal-close": createMockElement("关闭"),
+    "btn-cancel-temp-browser": createMockElement("取消"),
+    "btn-submit-temp-browser": createMockElement("创建"),
     "temp-browser-toast": createMockElement(),
     "temp-browser-toast-spinner": createMockElement(),
     "temp-browser-toast-message": createMockElement(),
@@ -164,6 +168,7 @@ test("已安装 Chrome 时点击创建按钮会 POST 创建并刷新计数", asy
   expect(elements["btn-create-temp-browser"].disabled).toBe(false);
 
   elements["btn-create-temp-browser"].click();
+  elements["btn-submit-temp-browser"].click();
   await flushAsync();
   await flushAsync();
 

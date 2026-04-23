@@ -1,10 +1,30 @@
 import { join } from "path";
 import { readFile } from "fs/promises";
-import { ensureDirs, loadBrowsers, insertBrowser, updateBrowserGroup, syncStatus, loadGroups, insertGroup, renameGroup, removeGroup, getBrowser, updateBrowser, type BrowserInstance, type Group } from "./store";
+import {
+  ensureDirs,
+  loadBrowsers,
+  insertBrowser,
+  updateBrowserGroup,
+  syncStatus,
+  loadGroups,
+  insertGroup,
+  renameGroup,
+  removeGroup,
+  getBrowser,
+  updateBrowser,
+  loadSavedProxies,
+  insertSavedProxy,
+  getSavedProxy,
+  updateSavedProxy,
+  removeSavedProxy,
+  type BrowserInstance,
+  type Group,
+  type SavedProxy,
+} from "./store";
 import { generateFingerprint } from "./fingerprint";
 import { launchBrowser, closeBrowser, deleteBrowser } from "./browser-manager";
 import { getLogs, clearLogs, log } from "./logger";
-import { normalizeProxyConfig } from "./proxy";
+import { normalizeProxyConfig, summarizeProxy } from "./proxy";
 import { testProxyConnection } from "./proxy-tester";
 import { recoverTempBrowsers } from "./temp-browser-manager";
 import { handleTempBrowserApi } from "./temp-browser-api";
@@ -120,6 +140,58 @@ async function handleApi(req: Request, pathname: string): Promise<Response> {
         return json({ error: "请先填写代理配置" }, 400);
       }
       return json(await testProxyConnection(proxy));
+    }
+
+    // ---- Saved Proxies ----
+    if (pathname === "/api/proxies" && req.method === "GET") {
+      return json(loadSavedProxies());
+    }
+
+    if (pathname === "/api/proxies" && req.method === "POST") {
+      const body = await readBody();
+      const proxy = normalizeProxyConfig(body.proxy);
+      if (!proxy) {
+        return json({ error: "请先填写有效的代理配置" }, 400);
+      }
+
+      const savedProxy: SavedProxy = {
+        id: crypto.randomUUID(),
+        name: (typeof body.name === "string" && body.name.trim()) ? body.name.trim() : summarizeProxy(proxy),
+        proxy,
+        createdAt: new Date().toISOString(),
+      };
+      insertSavedProxy(savedProxy);
+      return json(savedProxy, 201);
+    }
+
+    const proxyMatch = pathname.match(/^\/api\/proxies\/([^/]+)$/);
+    if (proxyMatch) {
+      const proxyId = proxyMatch[1]!;
+      const existing = getSavedProxy(proxyId);
+      if (!existing) {
+        return json({ error: "Proxy not found" }, 404);
+      }
+
+      if (req.method === "PUT") {
+        const body = await readBody();
+        const proxy = normalizeProxyConfig(body.proxy);
+        if (!proxy) {
+          return json({ error: "请先填写有效的代理配置" }, 400);
+        }
+
+        const next: SavedProxy = {
+          ...existing,
+          name: (typeof body.name === "string" && body.name.trim()) ? body.name.trim() : summarizeProxy(proxy),
+          proxy,
+        };
+        updateSavedProxy(next);
+        return json(next);
+      }
+
+      if (req.method === "DELETE") {
+        removeSavedProxy(proxyId);
+        return json({ ok: true });
+      }
     }
 
     // GET /api/logs

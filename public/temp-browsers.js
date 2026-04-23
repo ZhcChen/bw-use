@@ -24,6 +24,10 @@
     typeof window.initProxyTestController === "function"
       ? window.initProxyTestController
       : null;
+  const registerProxyPickerTarget =
+    typeof window.registerProxyPickerTarget === "function"
+      ? window.registerProxyPickerTarget
+      : null;
   const proxyController = initProxyFieldController
     ? initProxyFieldController({
         combined: "temp-proxy-combined",
@@ -54,6 +58,14 @@
     : {
         reset() {},
       };
+
+  registerProxyPickerTarget?.("temp-browser-form", {
+    label: "临时浏览器",
+    controller: proxyController,
+    onSelect() {
+      proxyTestController.reset();
+    },
+  });
 
   const state = {
     count: 0,

@@ -595,6 +595,74 @@
     }
     .vs-group-item:hover { border-color: var(--vs-border); }
 
+    .vs-proxy-item {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      background: var(--vs-bg-elevated);
+      border: 1px solid var(--vs-border-subtle);
+      border-radius: var(--vs-radius);
+      transition: border-color 80ms ease, background-color 80ms ease;
+    }
+    .vs-proxy-item:hover {
+      border-color: var(--vs-border);
+      background: #313136;
+    }
+    .vs-proxy-item__main {
+      min-width: 0;
+      flex: 1;
+    }
+    .vs-proxy-item__name {
+      font-size: 12px;
+      color: var(--vs-fg-strong);
+      font-weight: 500;
+    }
+    .vs-proxy-item__summary {
+      margin-top: 4px;
+      font-family: var(--vs-font-mono);
+      font-size: 11px;
+      color: var(--vs-blue);
+      word-break: break-all;
+    }
+    .vs-proxy-item__meta {
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--vs-fg-muted);
+    }
+    .vs-proxy-item__actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      flex-shrink: 0;
+    }
+    .vs-modal-note {
+      font-size: 11px;
+      color: var(--vs-fg-dim);
+      line-height: 1.5;
+    }
+    .vs-form-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .vs-proxy-tools {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .vs-proxy-tools .vs-input {
+      flex: 1;
+      min-width: 180px;
+    }
+
     /* Inline small select on card rows */
     .vs-select--inline {
       height: 22px;
@@ -668,6 +736,8 @@
       <button id="btn-close-browsers" onclick="closeVisibleBrowsers()" class="vs-btn vs-btn--warn" disabled>
         一键关闭
       </button>
+      <span id="browser-total-count" class="vs-count">浏览器：-- 个</span>
+      <span id="browser-running-count" class="vs-count">已打开：-- 个</span>
       <span class="vs-divider-v"></span>
       <span id="temp-browser-count" class="vs-count">临时浏览器：-- 个</span>
       <button id="btn-create-temp-browser" class="vs-btn vs-btn--ghost vs-btn--sm">
@@ -693,6 +763,7 @@
       <option value="name-desc">名称：Z → A</option>
     </select>
     <button onclick="openGroupManager()" class="vs-btn vs-btn--ghost">管理分组</button>
+    <button onclick="openProxyManager()" class="vs-btn vs-btn--ghost">管理代理</button>
 
     <div class="ml-auto flex items-center gap-2 flex-wrap">
       <span id="selection-count" class="vs-kbd">已选 0 项</span>
@@ -728,6 +799,86 @@
           <button onclick="createGroup()" class="vs-btn vs-btn--primary vs-btn--sm">添加</button>
         </div>
         <div id="group-list" class="space-y-1.5 max-h-60 overflow-y-auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="proxy-modal" class="hidden fixed inset-0 z-[60] modal-mask flex items-center justify-center">
+    <div class="vs-modal vs-modal-scroll w-full max-w-5xl mx-4">
+      <div class="vs-modal-header">
+        <div class="min-w-0">
+          <h2 id="proxy-modal-title" class="vs-modal-title">管理代理</h2>
+          <div id="proxy-modal-note" class="vs-modal-note"></div>
+        </div>
+        <button onclick="closeProxyManager()" class="vs-modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="vs-modal-body">
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] gap-4">
+          <div class="space-y-3">
+            <div class="vs-section-title">
+              <span id="proxy-form-title">新增代理</span>
+              <button id="btn-new-saved-proxy" type="button" onclick="startCreateSavedProxy()" class="vs-btn vs-btn--ghost vs-btn--xs">新建</button>
+            </div>
+            <div>
+              <label class="vs-label">名称</label>
+              <input id="saved-proxy-name" type="text" placeholder="住宅代理 1" class="vs-input" autocomplete="off">
+            </div>
+            <div>
+              <label class="vs-label">代理串</label>
+              <input
+                id="saved-proxy-combined"
+                type="text"
+                placeholder="165.154.172.188:1626:d0f18d2ca804:xi2p8f59e3hiychqytba"
+                class="vs-input vs-input--mono"
+                autocomplete="off"
+              >
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="vs-label">IP / Host</label>
+                <input id="saved-proxy-host" type="text" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+              <div>
+                <label class="vs-label">端口</label>
+                <input id="saved-proxy-port" type="number" min="1" max="65535" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+              <div>
+                <label class="vs-label">用户名</label>
+                <input id="saved-proxy-username" type="text" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+              <div>
+                <label class="vs-label">密码</label>
+                <input id="saved-proxy-password" type="password" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button id="btn-test-saved-proxy" type="button" class="vs-btn vs-btn--ghost vs-btn--sm">测试代理</button>
+              <span id="saved-proxy-test-result" class="vs-inline-status"></span>
+            </div>
+            <div class="vs-form-actions">
+              <button id="btn-cancel-saved-proxy" type="button" onclick="cancelSavedProxyEdit()" class="vs-btn vs-btn--ghost" style="display: none;">取消编辑</button>
+              <button id="btn-save-saved-proxy" type="button" onclick="submitSavedProxy()" class="vs-btn vs-btn--primary">保存代理</button>
+            </div>
+          </div>
+          <div>
+            <div class="vs-section-title">
+              <span>代理列表</span>
+              <span id="proxy-list-count" class="vs-kbd">0 项</span>
+            </div>
+            <div class="vs-proxy-tools">
+              <input
+                id="proxy-search-input"
+                type="text"
+                placeholder="搜索名称 / IP / 用户名…"
+                class="vs-input"
+                autocomplete="off"
+                oninput="renderSavedProxyList()"
+              >
+              <span id="proxy-copy-result" class="vs-inline-status"></span>
+            </div>
+            <div id="proxy-list" class="space-y-2 max-h-[58vh] overflow-y-auto"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -775,13 +926,16 @@
           <div class="space-y-2">
             <div>
               <label class="vs-label">代理串</label>
-              <input
-                id="f-proxy-combined"
-                type="text"
-                placeholder="165.154.172.188:1626:d0f18d2ca804:xi2p8f59e3hiychqytba"
-                class="vs-input vs-input--mono"
-                autocomplete="off"
-              >
+              <div class="flex gap-2 items-end">
+                <input
+                  id="f-proxy-combined"
+                  type="text"
+                  placeholder="165.154.172.188:1626:d0f18d2ca804:xi2p8f59e3hiychqytba"
+                  class="vs-input vs-input--mono"
+                  autocomplete="off"
+                >
+                <button type="button" class="vs-btn vs-btn--ghost" onclick="openProxyManager('browser-form')">代理库</button>
+              </div>
               <p class="text-xs mt-1" style="color: var(--vs-fg-muted);">
                 支持 <span class="font-mono">IP:端口:用户名:密码</span>，输入后会自动拆分到下面 4 个字段；留空则直连。
               </p>
@@ -1023,13 +1177,16 @@
           <div class="space-y-2">
             <div>
               <label class="vs-label">代理串</label>
-              <input
-                id="temp-proxy-combined"
-                type="text"
-                placeholder="165.154.172.188:1626:d0f18d2ca804:xi2p8f59e3hiychqytba"
-                class="vs-input vs-input--mono"
-                autocomplete="off"
-              >
+              <div class="flex gap-2 items-end">
+                <input
+                  id="temp-proxy-combined"
+                  type="text"
+                  placeholder="165.154.172.188:1626:d0f18d2ca804:xi2p8f59e3hiychqytba"
+                  class="vs-input vs-input--mono"
+                  autocomplete="off"
+                >
+                <button type="button" class="vs-btn vs-btn--ghost" onclick="openProxyManager('temp-browser-form')">代理库</button>
+              </div>
               <p class="text-xs mt-1" style="color: var(--vs-fg-muted);">
                 支持 <span class="font-mono">IP:端口:用户名:密码</span>，不填则直接创建无代理临时浏览器。
               </p>
@@ -1110,10 +1267,14 @@ const API = '/api';
 let deleteTargetIds = [];
 let allBrowsers = [];
 let allGroups = [];
+let allSavedProxies = [];
 let lastRenderedBrowsers = [];
 let selectedBrowserIds = new Set();
 let editingBrowserId = null;
+let editingSavedProxyId = null;
+let activeProxyPickerTargetKey = null;
 let closingBrowsers = false;
+const proxyPickerTargets = new Map();
 const BROWSER_NAME_COLLATOR = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
 
 // ---- API helpers ----
@@ -1338,6 +1499,38 @@ const createProxyTestController = initProxyTestController({
   fieldIds: ['f-proxy-combined', 'f-proxy-host', 'f-proxy-port', 'f-proxy-username', 'f-proxy-password'],
 });
 
+const savedProxyController = initProxyFieldController({
+  combined: 'saved-proxy-combined',
+  host: 'saved-proxy-host',
+  port: 'saved-proxy-port',
+  username: 'saved-proxy-username',
+  password: 'saved-proxy-password',
+});
+
+const savedProxyTestController = initProxyTestController({
+  buttonId: 'btn-test-saved-proxy',
+  resultId: 'saved-proxy-test-result',
+  proxyController: savedProxyController,
+  fieldIds: ['saved-proxy-combined', 'saved-proxy-host', 'saved-proxy-port', 'saved-proxy-username', 'saved-proxy-password'],
+});
+
+function registerProxyPickerTarget(key, target) {
+  proxyPickerTargets.set(key, target);
+}
+
+function getProxyPickerTarget(key) {
+  return key ? proxyPickerTargets.get(key) || null : null;
+}
+
+window.registerProxyPickerTarget = registerProxyPickerTarget;
+registerProxyPickerTarget('browser-form', {
+  label: '当前浏览器',
+  controller: createProxyController,
+  onSelect() {
+    createProxyTestController.reset();
+  },
+});
+
 // ---- Groups ----
 async function loadGroups() {
   allGroups = await api('/groups');
@@ -1413,6 +1606,232 @@ function renderGroupList() {
   `).join('');
 }
 
+// ---- Saved Proxies ----
+async function loadSavedProxies() {
+  allSavedProxies = await api('/proxies');
+  renderSavedProxyList();
+}
+
+function getProxyPickerModeLabel() {
+  const target = getProxyPickerTarget(activeProxyPickerTargetKey);
+  return target ? `选择后会直接填入${target.label}` : '集中管理所有可复用代理配置';
+}
+
+function startCreateSavedProxy() {
+  editingSavedProxyId = null;
+  document.getElementById('proxy-form-title').textContent = '新增代理';
+  document.getElementById('btn-save-saved-proxy').textContent = '保存代理';
+  document.getElementById('btn-cancel-saved-proxy').style.display = 'none';
+  document.getElementById('saved-proxy-name').value = '';
+  savedProxyController.reset();
+  savedProxyTestController.reset();
+}
+
+function cancelSavedProxyEdit() {
+  startCreateSavedProxy();
+}
+
+function getSavedProxySearchQuery() {
+  return document.getElementById('proxy-search-input')?.value.trim().toLowerCase() || '';
+}
+
+function clearSavedProxyFeedback() {
+  const statusEl = document.getElementById('proxy-copy-result');
+  if (!statusEl) return;
+  statusEl.textContent = '';
+  delete statusEl.dataset.tone;
+}
+
+function setSavedProxyFeedback(tone, message) {
+  const statusEl = document.getElementById('proxy-copy-result');
+  if (!statusEl) return;
+  statusEl.textContent = message || '';
+  if (tone) {
+    statusEl.dataset.tone = tone;
+  } else {
+    delete statusEl.dataset.tone;
+  }
+}
+
+function getSavedProxyCopyValue(proxy) {
+  return composeProxyInput({
+    host: proxy?.host || '',
+    port: proxy?.port == null ? '' : String(proxy.port),
+    username: proxy?.username || '',
+    password: proxy?.password || '',
+  });
+}
+
+function filterSavedProxies(items) {
+  const query = getSavedProxySearchQuery();
+  if (!query) return items;
+  return items.filter((item) => {
+    const summary = formatProxySummary(item.proxy).toLowerCase();
+    const copyValue = getSavedProxyCopyValue(item.proxy).toLowerCase();
+    const name = (item.name || '').toLowerCase();
+    return name.includes(query) || summary.includes(query) || copyValue.includes(query);
+  });
+}
+
+function renderSavedProxyList() {
+  const listEl = document.getElementById('proxy-list');
+  const countEl = document.getElementById('proxy-list-count');
+  const target = getProxyPickerTarget(activeProxyPickerTargetKey);
+  if (!listEl || !countEl) return;
+
+  const filteredItems = filterSavedProxies(allSavedProxies);
+  const query = getSavedProxySearchQuery();
+  countEl.textContent = query
+    ? `${filteredItems.length} / ${allSavedProxies.length} 项`
+    : `${allSavedProxies.length} 项`;
+
+  if (allSavedProxies.length === 0) {
+    listEl.innerHTML = '<div style="color: var(--vs-fg-muted); font-size: 12px; padding: 8px 2px;">暂无已保存代理，先在左侧新增一个。</div>';
+    return;
+  }
+
+  if (filteredItems.length === 0) {
+    listEl.innerHTML = '<div style="color: var(--vs-fg-muted); font-size: 12px; padding: 8px 2px;">没有匹配的代理。</div>';
+    return;
+  }
+
+  listEl.innerHTML = filteredItems.map((item) => `
+    <div class="vs-proxy-item" ${target ? `onclick="applySavedProxy('${item.id}')" style="cursor: pointer;"` : ''}>
+      <div class="vs-proxy-item__main">
+        <div class="vs-proxy-item__name">${esc(item.name)}</div>
+        <div class="vs-proxy-item__summary">${esc(formatProxySummary(item.proxy))}</div>
+        <div class="vs-proxy-item__meta">创建于 ${esc(formatBrowserCreatedAt(item.createdAt))}</div>
+      </div>
+      <div class="vs-proxy-item__actions">
+        ${target ? `<button type="button" class="vs-btn vs-btn--primary vs-btn--sm" onclick="event.stopPropagation(); applySavedProxy('${item.id}')">使用</button>` : ''}
+        <button type="button" class="vs-btn vs-btn--ghost vs-btn--sm" onclick="event.stopPropagation(); copySavedProxy('${item.id}')">复制</button>
+        <button type="button" class="vs-btn vs-btn--ghost vs-btn--sm" onclick="event.stopPropagation(); editSavedProxy('${item.id}')">编辑</button>
+        <button type="button" class="vs-btn vs-btn--danger vs-btn--sm" onclick="event.stopPropagation(); deleteSavedProxy('${item.id}')">删除</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function openProxyManager(targetKey = null) {
+  try {
+    activeProxyPickerTargetKey = targetKey || null;
+    const target = getProxyPickerTarget(activeProxyPickerTargetKey);
+    document.getElementById('proxy-modal-title').textContent = target ? '选择代理' : '管理代理';
+    document.getElementById('proxy-modal-note').textContent = getProxyPickerModeLabel();
+    document.getElementById('proxy-search-input').value = '';
+    clearSavedProxyFeedback();
+    document.getElementById('proxy-modal').classList.remove('hidden');
+    startCreateSavedProxy();
+    await loadSavedProxies();
+  } catch (error) {
+    activeProxyPickerTargetKey = null;
+    alert(error?.message || '加载代理列表失败');
+  }
+}
+
+function closeProxyManager() {
+  document.getElementById('proxy-modal').classList.add('hidden');
+  document.getElementById('proxy-search-input').value = '';
+  clearSavedProxyFeedback();
+  activeProxyPickerTargetKey = null;
+  startCreateSavedProxy();
+}
+
+window.openProxyManager = openProxyManager;
+
+function editSavedProxy(id) {
+  const item = allSavedProxies.find((proxy) => proxy.id === id);
+  if (!item) return;
+  editingSavedProxyId = id;
+  document.getElementById('proxy-form-title').textContent = '编辑代理';
+  document.getElementById('btn-save-saved-proxy').textContent = '保存修改';
+  document.getElementById('btn-cancel-saved-proxy').style.display = '';
+  document.getElementById('saved-proxy-name').value = item.name || '';
+  savedProxyController.setValue(item.proxy);
+  savedProxyTestController.reset();
+}
+
+async function submitSavedProxy() {
+  try {
+    const name = document.getElementById('saved-proxy-name').value.trim();
+    const proxy = savedProxyController.getValue();
+    const payload = { name, proxy };
+
+    if (editingSavedProxyId) {
+      await api(`/proxies/${editingSavedProxyId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await api('/proxies', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    }
+
+    startCreateSavedProxy();
+    await loadSavedProxies();
+  } catch (error) {
+    alert(error?.message || '保存代理失败');
+  }
+}
+
+async function deleteSavedProxy(id) {
+  try {
+    const item = allSavedProxies.find((proxy) => proxy.id === id);
+    if (!item) return;
+    if (!window.confirm(`确认删除代理「${item.name}」吗？`)) return;
+    await api(`/proxies/${id}`, { method: 'DELETE' });
+    if (editingSavedProxyId === id) {
+      startCreateSavedProxy();
+    }
+    await loadSavedProxies();
+  } catch (error) {
+    alert(error?.message || '删除代理失败');
+  }
+}
+
+async function copySavedProxy(id) {
+  const item = allSavedProxies.find((proxy) => proxy.id === id);
+  if (!item) return;
+
+  const value = getSavedProxyCopyValue(item.proxy);
+  if (!value) {
+    setSavedProxyFeedback('error', '代理内容为空，无法复制');
+    return;
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.setAttribute('readonly', 'true');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    setSavedProxyFeedback('success', `已复制：${item.name}`);
+  } catch (error) {
+    setSavedProxyFeedback('error', error?.message || '复制失败');
+  }
+}
+
+function applySavedProxy(id) {
+  const item = allSavedProxies.find((proxy) => proxy.id === id);
+  const target = getProxyPickerTarget(activeProxyPickerTargetKey);
+  if (!item || !target) return;
+  target.controller.setValue(item.proxy);
+  if (typeof target.onSelect === 'function') {
+    target.onSelect(item.proxy);
+  }
+  closeProxyManager();
+}
+
 async function changeBrowserGroup(browserId, groupId) {
   await api(`/browsers/${browserId}/group`, { method: 'PUT', body: JSON.stringify({ groupId: groupId || null }) });
   loadBrowsers();
@@ -1422,7 +1841,20 @@ async function changeBrowserGroup(browserId, groupId) {
 async function loadBrowsers() {
   allBrowsers = await api('/browsers');
   pruneSelection();
+  updateBrowserStats();
   onSearch();
+}
+
+function updateBrowserStats() {
+  const totalEl = document.getElementById('browser-total-count');
+  const runningEl = document.getElementById('browser-running-count');
+  if (totalEl) {
+    totalEl.textContent = `浏览器：${allBrowsers.length} 个`;
+  }
+  if (runningEl) {
+    const runningCount = allBrowsers.filter((browser) => browser.status === 'running').length;
+    runningEl.textContent = `已打开：${runningCount} 个`;
+  }
 }
 
 function onSearch() {
@@ -1875,12 +2307,15 @@ async function submitBrowser() {
 document.getElementById('modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeModal();
 });
+document.getElementById('proxy-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeProxyManager();
+});
 document.getElementById('delete-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeDeleteModal();
 });
 
 // Init
-loadGroups().then(() => loadBrowsers());
+Promise.allSettled([loadGroups(), loadSavedProxies()]).then(() => loadBrowsers());
 
 // ---- Logs ----
 let logsVisible = false;

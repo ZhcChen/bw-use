@@ -58,6 +58,13 @@ export interface TempBrowser {
   createdAt: string;
 }
 
+export interface SavedProxy {
+  id: string;
+  name: string;
+  proxy: ProxyConfig;
+  createdAt: string;
+}
+
 let db: Database;
 let dbPath: string | null = null;
 let currentPaths: DataPaths = getDataPaths();
@@ -102,6 +109,14 @@ function initializeDb(databasePath: string) {
       launcher_pid INTEGER NOT NULL,
       instance_dir TEXT NOT NULL,
       profile_dir TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS saved_proxies (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      proxy TEXT NOT NULL,
       created_at TEXT NOT NULL
     )
   `);
@@ -244,6 +259,52 @@ export function removeTempBrowser(id: string) {
 
 export function clearTempBrowsers() {
   db.run("DELETE FROM temp_browsers");
+}
+
+function rowToSavedProxy(row: any): SavedProxy | null {
+  try {
+    const proxy = normalizeProxyConfig(JSON.parse(row.proxy));
+    if (!proxy) {
+      return null;
+    }
+    return {
+      id: row.id,
+      name: row.name,
+      proxy,
+      createdAt: row.created_at,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function loadSavedProxies(): SavedProxy[] {
+  return db.query("SELECT * FROM saved_proxies ORDER BY created_at ASC").all()
+    .map(rowToSavedProxy)
+    .filter((item): item is SavedProxy => item !== null);
+}
+
+export function getSavedProxy(id: string): SavedProxy | null {
+  const row = db.query("SELECT * FROM saved_proxies WHERE id = ?").get(id);
+  return row ? rowToSavedProxy(row) : null;
+}
+
+export function insertSavedProxy(savedProxy: SavedProxy) {
+  db.run(
+    "INSERT INTO saved_proxies (id, name, proxy, created_at) VALUES (?, ?, ?, ?)",
+    [savedProxy.id, savedProxy.name, JSON.stringify(savedProxy.proxy), savedProxy.createdAt],
+  );
+}
+
+export function updateSavedProxy(savedProxy: SavedProxy) {
+  db.run(
+    "UPDATE saved_proxies SET name = ?, proxy = ? WHERE id = ?",
+    [savedProxy.name, JSON.stringify(savedProxy.proxy), savedProxy.id],
+  );
+}
+
+export function removeSavedProxy(id: string) {
+  db.run("DELETE FROM saved_proxies WHERE id = ?", [id]);
 }
 
 export function insertGroup(g: Group) {
