@@ -2,8 +2,7 @@ import { join } from "path";
 import { mkdir, writeFile, chmod, readFile, access } from "fs/promises";
 import { log } from "./logger";
 
-const CHROME_PATH =
-  process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const DEFAULT_CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 /**
  * Generate a .app wrapper bundle for a browser instance.
@@ -63,7 +62,7 @@ export async function buildAppBundle(
   // Dock icon stays as our .app
   const escapedArgs = chromeArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" \\\n    ");
   const launchScript = `#!/bin/bash
-exec '${CHROME_PATH.replace(/'/g, "'\\''")}' \\
+exec '${getChromePath().replace(/'/g, "'\\''")}' \\
     ${escapedArgs}
 `;
 
@@ -243,4 +242,8 @@ async function fileExists(filePath: string) {
 function getShortIconId(id: string) {
   const normalized = id.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
   return (normalized || "BROWSER").slice(0, 4);
+}
+
+function getChromePath() {
+  return process.env.CHROME_PATH || DEFAULT_CHROME_PATH;
 }

@@ -23,6 +23,14 @@ Default to using Bun instead of Node.js.
 
 Use `bun test` to run tests.
 
+### Test data safety
+
+- Never modify, delete, or overwrite the user's existing real data during development, debugging, or acceptance testing.
+- Existing real data includes `data/` contents, existing databases, existing profiles, and already-created browser records.
+- When integration or UI verification is needed, always use isolated temporary data directories, temporary databases, temporary ports, and temporary processes, for example by setting `BW_USE_DATA_DIR` to a dedicated temp path.
+- Any temporary data, temp browser instances, logs, screenshots, snapshots, or caches created during testing must be removed after the test completes.
+- Unless the user explicitly authorizes it, existing real data is read-only.
+
 ```ts#index.test.ts
 import { test, expect } from "bun:test";
 

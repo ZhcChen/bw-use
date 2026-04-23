@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import { buildExtension } from "../src/extension-builder";
 import { generateFingerprint } from "../src/fingerprint";
 
-test("带代理账号密码时会生成可重试的代理认证脚本", async () => {
+test("带代理账号密码时会生成代理配置与可重试认证脚本", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "bw-use-ext-builder-"));
 
   try {
@@ -25,7 +25,10 @@ test("带代理账号密码时会生成可重试的代理认证脚本", async ()
     const background = await readFile(join(extDir, "background.js"), "utf-8");
 
     expect(manifest).toContain("webRequestAuthProvider");
+    expect(manifest).toContain("\"proxy\"");
     expect(background).toContain("MAX_PROXY_AUTH_ATTEMPTS = 5");
+    expect(background).toContain("chrome.proxy.settings.set");
+    expect(background).toContain("singleProxy");
     expect(background).toContain("attemptCounts");
     expect(background).toContain("details.challenger.host !== credentials.host");
     expect(background).toContain("authCredentials");

@@ -1,7 +1,7 @@
 import { join } from "path";
 import { mkdir, writeFile } from "fs/promises";
 import type { Fingerprint } from "./store";
-import type { ProxyConfig } from "./proxy";
+import { hasProxyCredentials, type ProxyConfig } from "./proxy";
 
 export async function buildExtension(
   profileDir: string,
@@ -27,9 +27,9 @@ export async function buildExtension(
     ],
   };
 
-  const shouldHandleProxyAuth = !!(proxy && (proxy.username || proxy.password));
-  if (shouldHandleProxyAuth) {
-    manifest.permissions = ["webRequest", "webRequestAuthProvider"];
+  const shouldConfigureProxy = hasProxyCredentials(proxy);
+  if (shouldConfigureProxy) {
+    manifest.permissions = ["proxy", "webRequest", "webRequestAuthProvider"];
     manifest.host_permissions = ["<all_urls>"];
     manifest.background = {
       service_worker: "background.js",
@@ -271,6 +271,16 @@ export async function buildExtension(
 
   const backgroundJs = `'use strict';
 (() => {
+  const proxySettings = ${JSON.stringify(proxy ? {
+    mode: "fixed_servers",
+    rules: {
+      singleProxy: {
+        scheme: "http",
+        host: proxy.host,
+        port: proxy.port,
+      },
+    },
+  } : null)};
   const credentials = ${JSON.stringify(proxy ? {
     username: proxy.username,
     password: proxy.password,
@@ -279,15 +289,33 @@ export async function buildExtension(
   } : null)};
   const MAX_PROXY_AUTH_ATTEMPTS = 5;
 
-  if (!credentials || (!credentials.username && !credentials.password)) {
+  if (!proxySettings || !credentials || (!credentials.username && !credentials.password)) {
     return;
   }
 
   const attemptCounts = new Map();
 
+  function configureProxy() {
+    chrome.proxy.settings.set(
+      {
+        value: proxySettings,
+        scope: 'regular',
+      },
+      () => {
+        if (chrome.runtime.lastError) {
+          console.warn('Failed to configure proxy', chrome.runtime.lastError.message);
+        }
+      },
+    );
+  }
+
   function clearRequest(details) {
     attemptCounts.delete(details.requestId);
   }
+
+  configureProxy();
+  chrome.runtime.onInstalled.addListener(configureProxy);
+  chrome.runtime.onStartup.addListener(configureProxy);
 
   chrome.webRequest.onAuthRequired.addListener(
     (details, callback) => {
@@ -334,7 +362,7 @@ export async function buildExtension(
 
   await writeFile(join(extDir, "manifest.json"), JSON.stringify(manifest, null, 2));
   await writeFile(join(extDir, "inject.js"), injectJs);
-  if (shouldHandleProxyAuth) {
+  if (shouldConfigureProxy) {
     await writeFile(join(extDir, "background.js"), backgroundJs);
   }
 

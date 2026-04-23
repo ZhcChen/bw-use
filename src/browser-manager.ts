@@ -6,14 +6,10 @@ import { buildExtension } from "./extension-builder";
 import { buildAppBundle, getBundleId } from "./app-builder";
 import { cleanupMacOS, cleanupMacOSAfterClose } from "./macos-cleanup";
 import { log } from "./logger";
-import { formatProxyServer, summarizeProxy } from "./proxy";
+import { ensureProxyBridge, stopProxyBridge } from "./proxy-bridge";
+import { formatProxyServer, hasProxyCredentials, summarizeProxy } from "./proxy";
 
-const CHROME_PATH =
-  process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const OPEN_BIN = process.env.BW_USE_OPEN_BIN || "open";
-const OSASCRIPT_BIN = process.env.BW_USE_OSASCRIPT_BIN || "osascript";
-const PGREP_BIN = process.env.BW_USE_PGREP_BIN || "pgrep";
-const PKILL_BIN = process.env.BW_USE_PKILL_BIN || "pkill";
+const DEFAULT_CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const BROWSER_START_TIMEOUT_MS = 10_000;
 const BROWSER_STOP_TIMEOUT_MS = 4_000;
 const BROWSER_POLL_INTERVAL_MS = 250;
@@ -51,7 +47,7 @@ export async function launchBrowser(id: string): Promise<BrowserInstance> {
   }
 
   // Build fingerprint extension
-  const extDir = await buildExtension(profileDir, browser.fingerprint, browser.name, browser.proxy);
+  const extDir = await buildExtension(profileDir, browser.fingerprint, browser.name, null);
 
   const args: string[] = [
     `--user-data-dir=${profileDir}`,
@@ -93,7 +89,12 @@ export async function launchBrowser(id: string): Promise<BrowserInstance> {
   }
 
   if (browser.proxy) {
-    args.push(`--proxy-server=${formatProxyServer(browser.proxy)}`);
+    if (hasProxyCredentials(browser.proxy)) {
+      const bridge = await ensureProxyBridge(getProxyBridgeKey(id), browser.proxy);
+      args.push(`--proxy-server=http://${bridge.host}:${bridge.port}`);
+    } else {
+      args.push(`--proxy-server=${formatProxyServer(browser.proxy)}`);
+    }
     log("info", "launch", "Using proxy", summarizeProxy(browser.proxy));
   }
 
@@ -114,7 +115,7 @@ export async function launchBrowser(id: string): Promise<BrowserInstance> {
     return { ...browser, status: "running", pid };
   }
 
-  const proc = spawn([CHROME_PATH, ...args], {
+  const proc = spawn([getChromePath(), ...args], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -126,6 +127,7 @@ export async function launchBrowser(id: string): Promise<BrowserInstance> {
   updateBrowserStatus(id, "running", pid);
 
   proc.exited.then(async (exitCode) => {
+    await stopProxyBridge(getProxyBridgeKey(id));
     runningBrowsers.delete(id);
     if (exitCode !== 0 && exitCode !== null) {
       const stderr = await readStream(proc.stderr as ReadableStream<Uint8Array>);
@@ -179,6 +181,7 @@ export async function closeBrowser(id: string): Promise<BrowserInstance> {
     await cleanupMacOSAfterClose(appPath, getBundleId(id));
   }
 
+  await stopProxyBridge(getProxyBridgeKey(id));
   runningBrowsers.delete(id);
   updateBrowserStatus(id, "stopped", null);
   return { ...browser, status: "stopped", pid: null };
@@ -207,6 +210,8 @@ export async function deleteBrowser(id: string): Promise<void> {
     }
   }
 
+  await stopProxyBridge(getProxyBridgeKey(id));
+
   // Delete profile directory completely (includes .app bundle)
   // Retry because Chrome may briefly write data after being killed
   for (let i = 0; i < 5; i++) {
@@ -234,12 +239,12 @@ export async function deleteBrowser(id: string): Promise<void> {
  * Uses SIGTERM first, then SIGKILL.
  */
 async function killProcessesByProfileId(id: string) {
-  const processMatchToken = getBrowserProcessMatchToken(id);
+  const processMatchPattern = getBrowserProcessMatchPattern(id);
   // pkill -f matches against the full command line of each process
   // The profile id is unique enough and appears in --user-data-dir of all Chrome processes
   try {
     // Graceful first
-    const p1 = spawn([PKILL_BIN, "-f", processMatchToken], { stdout: "ignore", stderr: "ignore" });
+    const p1 = spawn([getPkillBin(), "-f", "--", processMatchPattern], { stdout: "ignore", stderr: "ignore" });
     await p1.exited;
     log("info", "kill", `Sent SIGTERM to processes matching "${id}"`);
   } catch {}
@@ -248,7 +253,7 @@ async function killProcessesByProfileId(id: string) {
 
   try {
     // Force kill survivors
-    const p2 = spawn([PKILL_BIN, "-9", "-f", processMatchToken], { stdout: "ignore", stderr: "ignore" });
+    const p2 = spawn([getPkillBin(), "-9", "-f", "--", processMatchPattern], { stdout: "ignore", stderr: "ignore" });
     await p2.exited;
   } catch {}
 
@@ -286,7 +291,7 @@ async function readStream(stream: ReadableStream<Uint8Array> | null): Promise<st
 }
 
 async function openBrowserApp(appPath: string) {
-  const proc = spawn([OPEN_BIN, "-a", appPath], {
+  const proc = spawn([getOpenBin(), "-a", appPath], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -303,7 +308,7 @@ async function openBrowserApp(appPath: string) {
 async function requestMacOSAppQuit(id: string) {
   try {
     const proc = spawn(
-      [OSASCRIPT_BIN, "-e", `tell application id "${getBundleId(id)}" to quit`],
+      [getOsaScriptBin(), "-e", `tell application id "${getBundleId(id)}" to quit`],
       { stdout: "ignore", stderr: "pipe" },
     );
     const [exitCode, stderr] = await Promise.all([
@@ -323,9 +328,9 @@ async function requestMacOSAppQuit(id: string) {
 }
 
 async function findRunningBrowserPidByProfileId(id: string): Promise<number | null> {
-  const processMatchToken = getBrowserProcessMatchToken(id);
+  const processMatchPattern = getBrowserProcessMatchPattern(id);
   try {
-    const proc = spawn([PGREP_BIN, "-o", "-f", processMatchToken], {
+    const proc = spawn([getPgrepBin(), "-o", "-f", "--", processMatchPattern], {
       stdout: "pipe",
       stderr: "ignore",
     });
@@ -344,8 +349,36 @@ async function findRunningBrowserPidByProfileId(id: string): Promise<number | nu
   }
 }
 
-function getBrowserProcessMatchToken(id: string) {
-  return `--user-data-dir=${getProfileDir(id)}`;
+function getBrowserProcessMatchPattern(id: string) {
+  return escapeProcessMatchPattern(`--user-data-dir=${getProfileDir(id)}`);
+}
+
+function getProxyBridgeKey(id: string) {
+  return `browser:${id}`;
+}
+
+function escapeProcessMatchPattern(value: string) {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+}
+
+function getChromePath() {
+  return process.env.CHROME_PATH || DEFAULT_CHROME_PATH;
+}
+
+function getOpenBin() {
+  return process.env.BW_USE_OPEN_BIN || "open";
+}
+
+function getOsaScriptBin() {
+  return process.env.BW_USE_OSASCRIPT_BIN || "osascript";
+}
+
+function getPgrepBin() {
+  return process.env.BW_USE_PGREP_BIN || "pgrep";
+}
+
+function getPkillBin() {
+  return process.env.BW_USE_PKILL_BIN || "pkill";
 }
 
 async function waitForBrowserStart(id: string, timeoutMs = BROWSER_START_TIMEOUT_MS): Promise<number | null> {
@@ -381,6 +414,7 @@ function startBrowserExitMonitor(id: string) {
     while (true) {
       const pid = await findRunningBrowserPidByProfileId(id);
       if (!pid) {
+        await stopProxyBridge(getProxyBridgeKey(id));
         runningBrowsers.delete(id);
         updateBrowserStatus(id, "stopped", null);
         log("info", "launch", "Browser process exited", `id=${id}`);

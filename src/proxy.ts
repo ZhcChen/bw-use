@@ -87,6 +87,10 @@ export function formatProxyServer(proxy: ProxyConfig): string {
   return `http://${proxy.host}:${proxy.port}`;
 }
 
+export function hasProxyCredentials(proxy: ProxyConfig | null | undefined): boolean {
+  return !!(proxy && (proxy.username || proxy.password));
+}
+
 export function summarizeProxy(proxy: ProxyConfig | null | undefined): string {
   if (!proxy) {
     return "direct";

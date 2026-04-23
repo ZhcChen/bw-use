@@ -13,7 +13,8 @@ import {
 import { generateFingerprint } from "./fingerprint";
 import { buildExtension } from "./extension-builder";
 import { log } from "./logger";
-import { formatProxyServer, summarizeProxy, type ProxyConfig } from "./proxy";
+import { ensureProxyBridge, stopProxyBridge } from "./proxy-bridge";
+import { formatProxyServer, hasProxyCredentials, summarizeProxy, type ProxyConfig } from "./proxy";
 
 const DEFAULT_CHROME_BIN =
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -77,7 +78,7 @@ export async function createTempBrowser(
 
     const fingerprint = generateFingerprint();
     const browserName = `Temp-${id.slice(0, 8)}`;
-    const extDir = await buildExtension(profileDir, fingerprint, browserName, options.proxy ?? null);
+    const extDir = await buildExtension(profileDir, fingerprint, browserName, null);
 
     const args: string[] = [
       `--user-data-dir=${profileDir}`,
@@ -111,7 +112,12 @@ export async function createTempBrowser(
     }
 
     if (options.proxy) {
-      args.push(`--proxy-server=${formatProxyServer(options.proxy)}`);
+      if (hasProxyCredentials(options.proxy)) {
+        const bridge = await ensureProxyBridge(getTempProxyBridgeKey(id), options.proxy);
+        args.push(`--proxy-server=http://${bridge.host}:${bridge.port}`);
+      } else {
+        args.push(`--proxy-server=${formatProxyServer(options.proxy)}`);
+      }
       log("info", "temp-chrome", "Using proxy", summarizeProxy(options.proxy));
     }
 
@@ -139,6 +145,7 @@ export async function createTempBrowser(
       if (!state) return;
       if (state.suppressAutoClean) return;
       runningTemp.delete(id);
+      await stopProxyBridge(getTempProxyBridgeKey(id));
       log("info", "temp-chrome", `User-closed temp browser`, `id=${id} code=${exitCode}`);
       await cleanupAfterExit(id, instanceDir).catch((err: any) => {
         log("error", "temp-chrome", "Post-exit cleanup failed", `id=${id} error=${err?.message}`);
@@ -150,6 +157,7 @@ export async function createTempBrowser(
     if (proc && isProcessAlive(proc.pid)) {
       await terminateProcess(proc.pid).catch(() => {});
     }
+    await stopProxyBridge(getTempProxyBridgeKey(id));
     runningTemp.delete(id);
     removeTempBrowser(id);
     await safeRemoveInstanceDir(instanceDir, tempChromeDir).catch(() => {});
@@ -172,6 +180,7 @@ export async function closeAllTempBrowsers(): Promise<CloseAllTempBrowsersResult
       if (state) state.suppressAutoClean = true;
 
       await killProcessesByProfileId(browser.id);
+      await stopProxyBridge(getTempProxyBridgeKey(browser.id));
       await safeRemoveInstanceDir(browser.instanceDir, tempChromeDir);
       removeTempBrowser(browser.id);
       runningTemp.delete(browser.id);
@@ -205,6 +214,7 @@ export async function recoverTempBrowsers(): Promise<void> {
           await terminateProcess(browser.launcherPid);
         }
       }
+      await stopProxyBridge(getTempProxyBridgeKey(browser.id));
       await safeRemoveInstanceDir(browser.instanceDir, tempChromeDir);
       removeTempBrowser(browser.id);
       log("info", "temp-chrome", "Recovered stale temp browser", `id=${browser.id}`);
@@ -222,6 +232,7 @@ export async function recoverTempBrowsers(): Promise<void> {
 async function cleanupAfterExit(id: string, instanceDir: string) {
   const { tempChromeDir } = getDataPaths();
   await killProcessesByProfileId(id);
+  await stopProxyBridge(getTempProxyBridgeKey(id));
   await safeRemoveInstanceDir(instanceDir, tempChromeDir);
   removeTempBrowser(id);
 }
@@ -344,4 +355,8 @@ function getProcessCommand(pid: number) {
   });
   if (result.exitCode !== 0) return "";
   return result.stdout.toString().trim();
+}
+
+function getTempProxyBridgeKey(id: string) {
+  return `temp:${id}`;
 }

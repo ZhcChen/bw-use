@@ -686,6 +686,12 @@
       <option value="">全部分组</option>
       <option value="__none__">未分组</option>
     </select>
+    <select id="sort-mode" onchange="onSearch()" class="vs-select" style="width: 170px;">
+      <option value="created-desc">创建时间：新到旧</option>
+      <option value="created-asc">创建时间：旧到新</option>
+      <option value="name-asc">名称：A → Z</option>
+      <option value="name-desc">名称：Z → A</option>
+    </select>
     <button onclick="openGroupManager()" class="vs-btn vs-btn--ghost vs-btn--sm">管理分组</button>
 
     <div class="ml-auto flex items-center gap-2 flex-wrap">
@@ -1108,6 +1114,7 @@ let lastRenderedBrowsers = [];
 let selectedBrowserIds = new Set();
 let editingBrowserId = null;
 let closingBrowsers = false;
+const BROWSER_NAME_COLLATOR = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
 
 // ---- API helpers ----
 async function api(path, opts = {}) {
@@ -1430,7 +1437,50 @@ function onSearch() {
   } else if (groupFilter) {
     filtered = filtered.filter(b => b.groupId === groupFilter);
   }
-  render(filtered);
+  render(sortBrowsersForDisplay(filtered));
+}
+
+function getBrowserSortMode() {
+  return document.getElementById('sort-mode')?.value || 'created-desc';
+}
+
+function getBrowserCreatedAtValue(browser) {
+  const value = Date.parse(browser?.createdAt || '');
+  return Number.isFinite(value) ? value : 0;
+}
+
+function compareBrowserNames(a, b) {
+  return BROWSER_NAME_COLLATOR.compare(a?.name || '', b?.name || '')
+    || BROWSER_NAME_COLLATOR.compare(a?.id || '', b?.id || '');
+}
+
+function compareBrowserCreatedAt(a, b) {
+  return getBrowserCreatedAtValue(a) - getBrowserCreatedAtValue(b)
+    || compareBrowserNames(a, b);
+}
+
+function sortBrowsersForDisplay(browsers) {
+  const items = browsers.slice();
+  const sortMode = getBrowserSortMode();
+  items.sort((a, b) => {
+    switch (sortMode) {
+      case 'created-asc':
+        return compareBrowserCreatedAt(a, b);
+      case 'name-asc':
+        return compareBrowserNames(a, b) || compareBrowserCreatedAt(b, a);
+      case 'name-desc':
+        return compareBrowserNames(b, a) || compareBrowserCreatedAt(b, a);
+      case 'created-desc':
+      default:
+        return compareBrowserCreatedAt(b, a);
+    }
+  });
+  return items;
+}
+
+function formatBrowserCreatedAt(value) {
+  if (!value) return '-';
+  return value.replace('T', ' ').slice(0, 16);
 }
 
 function render(browsers) {
@@ -1451,6 +1501,7 @@ function render(browsers) {
     const isSelected = selectedBrowserIds.has(b.id);
     const gName = getGroupName(b.groupId);
     const proxyLabel = formatProxySummary(b.proxy);
+    const createdLabel = formatBrowserCreatedAt(b.createdAt);
     const groupOpts = allGroups.map(g =>
       `<option value="${g.id}" ${b.groupId===g.id?'selected':''}>${esc(g.name)}</option>`
     ).join('');
@@ -1494,6 +1545,7 @@ function render(browsers) {
         <div><span class="vs-k">proxy</span><span class="vs-v" style="color: ${b.proxy ? 'var(--vs-blue)' : 'var(--vs-fg-dim)'};">${esc(proxyLabel)}</span></div>
         <div><span class="vs-k">dock</span><span class="vs-v" style="color: ${b.enableCustomIcon ? 'var(--vs-blue)' : 'var(--vs-fg-dim)'};">${b.enableCustomIcon ? 'custom' : 'default'}</span></div>
         <div><span class="vs-k">cors</span><span class="vs-v" style="color: ${b.disableCors ? 'var(--vs-yellow)' : 'var(--vs-fg-dim)'};">${b.disableCors ? 'disabled' : 'on'}</span></div>
+        <div><span class="vs-k">created</span><span class="vs-v">${esc(createdLabel)}</span></div>
       </div>
       <div class="vs-row-ua" title="${esc(b.fingerprint.userAgent)}"><span class="vs-k">ua </span>${esc(b.fingerprint.userAgent)}</div>
     </div>
