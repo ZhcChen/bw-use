@@ -1,0 +1,1777 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Browser Manager</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* ---------- VSCode Dark+ design tokens ---------- */
+    :root {
+      --vs-bg:            #1e1e1e;
+      --vs-bg-alt:        #252526;
+      --vs-bg-elevated:   #2d2d30;
+      --vs-bg-input:      #3c3c3c;
+      --vs-bg-hover:      #2a2d2e;
+      --vs-bg-active:     #094771;
+      --vs-bg-header:     #3c3c3c;
+
+      --vs-fg:            #cccccc;
+      --vs-fg-strong:     #e8e8e8;
+      --vs-fg-dim:        #858585;
+      --vs-fg-muted:      #6a6a6a;
+
+      --vs-border:        #3e3e42;
+      --vs-border-subtle: #2a2a2d;
+      --vs-border-focus:  #007fd4;
+
+      --vs-accent:        #0e639c;
+      --vs-accent-hover:  #1177bb;
+
+      --vs-green:         #0dbc79;
+      --vs-green-dim:     #4ec9b0;
+      --vs-red:           #cd3131;
+      --vs-red-dim:       #f48771;
+      --vs-yellow:        #dcdcaa;
+      --vs-blue:          #569cd6;
+      --vs-purple:        #c586c0;
+      --vs-comment:       #6a9955;
+
+      --vs-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue", sans-serif;
+      --vs-font-mono: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+      --vs-radius:    3px;
+      --vs-radius-lg: 4px;
+    }
+
+    /* ---------- Reset / base ---------- */
+    html, body {
+      background: var(--vs-bg);
+      color: var(--vs-fg);
+      font-family: var(--vs-font-ui);
+      font-size: 13px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    body { min-height: 100vh; }
+
+    /* Force native form elements to inherit our font */
+    button, input, select, textarea { font-family: inherit; font-size: inherit; }
+
+    /* Monospace for technical fields */
+    .vs-mono, .font-mono { font-family: var(--vs-font-mono); font-feature-settings: "ss01", "cv11"; }
+
+    /* ---------- Scrollbar (VSCode look) ---------- */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(121, 121, 121, 0.4);
+      border: 2px solid transparent;
+      background-clip: padding-box;
+      border-radius: 5px;
+    }
+    ::-webkit-scrollbar-thumb:hover { background-color: rgba(100, 100, 100, 0.7); background-clip: padding-box; }
+    ::-webkit-scrollbar-corner { background: transparent; }
+
+    /* ---------- Layout ---------- */
+    .vs-header {
+      height: 44px;
+      padding: 0 16px;
+      background: var(--vs-bg-alt);
+      border-bottom: 1px solid var(--vs-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .vs-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      color: var(--vs-fg-strong);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .vs-title::before {
+      content: "";
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--vs-green);
+      box-shadow: 0 0 6px rgba(13, 188, 121, 0.55);
+    }
+    .vs-title-meta {
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: 0;
+      color: var(--vs-fg-dim);
+    }
+    .vs-toolbar {
+      height: 38px;
+      padding: 0 16px;
+      background: var(--vs-bg);
+      border-bottom: 1px solid var(--vs-border-subtle);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .vs-divider-v {
+      width: 1px;
+      height: 20px;
+      background: var(--vs-border);
+      margin: 0 4px;
+    }
+    .vs-main { padding: 14px 16px 40px; }
+
+    /* ---------- Buttons ---------- */
+    .vs-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 26px;
+      padding: 0 12px;
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 1;
+      white-space: nowrap;
+      color: var(--vs-fg);
+      background: #3a3a3a;
+      border: 1px solid transparent;
+      border-radius: var(--vs-radius);
+      cursor: pointer;
+      transition: background-color 80ms ease, border-color 80ms ease;
+      user-select: none;
+    }
+    .vs-btn:hover { background: #4a4a4a; }
+    .vs-btn:focus-visible { outline: 1px solid var(--vs-border-focus); outline-offset: 1px; }
+    .vs-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .vs-btn--primary {
+      background: var(--vs-accent);
+      color: #fff;
+    }
+    .vs-btn--primary:hover { background: var(--vs-accent-hover); }
+
+    .vs-btn--danger {
+      background: #6f1313;
+      color: #fecaca;
+    }
+    .vs-btn--danger:hover { background: #8c1818; }
+
+    .vs-btn--ghost {
+      background: transparent;
+      border-color: var(--vs-border);
+    }
+    .vs-btn--ghost:hover { background: var(--vs-bg-hover); }
+
+    .vs-btn--warn {
+      background: #7a5a00;
+      color: #fef3c7;
+    }
+    .vs-btn--warn:hover { background: #906a00; }
+
+    .vs-btn--success {
+      background: #0e7c3c;
+      color: #dcfce7;
+    }
+    .vs-btn--success:hover { background: #0f9548; }
+
+    .vs-btn--sm {
+      height: 22px;
+      padding: 0 8px;
+      font-size: 11px;
+    }
+    .vs-btn--xs {
+      height: 20px;
+      padding: 0 6px;
+      font-size: 11px;
+    }
+    .vs-btn--icon { padding: 0 8px; }
+
+    /* ---------- Inputs ---------- */
+    .vs-input, .vs-select {
+      display: inline-block;
+      width: 100%;
+      height: 26px;
+      padding: 0 8px;
+      font-size: 12px;
+      color: var(--vs-fg);
+      background: var(--vs-bg-input);
+      border: 1px solid transparent;
+      border-radius: var(--vs-radius);
+      outline: none;
+      transition: border-color 80ms ease;
+    }
+    .vs-input:hover, .vs-select:hover { border-color: #555; }
+    .vs-input:focus, .vs-select:focus { border-color: var(--vs-border-focus); }
+    .vs-input::placeholder { color: var(--vs-fg-muted); }
+
+    .vs-select {
+      appearance: none;
+      -webkit-appearance: none;
+      padding-right: 24px;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23858585'><path d='M4 6l4 4 4-4H4z'/></svg>");
+      background-repeat: no-repeat;
+      background-position: right 6px center;
+      background-size: 14px;
+    }
+    .vs-input--mono { font-family: var(--vs-font-mono); font-size: 11px; }
+
+    /* Number inputs - tighter */
+    input[type="number"].vs-input { font-variant-numeric: tabular-nums; }
+
+    /* ---------- Label ---------- */
+    .vs-label {
+      display: block;
+      font-size: 11px;
+      color: var(--vs-fg-dim);
+      margin-bottom: 4px;
+      letter-spacing: 0.2px;
+    }
+
+    /* ---------- Cards / list items ---------- */
+    .vs-card {
+      background: var(--vs-bg-alt);
+      border: 1px solid var(--vs-border-subtle);
+      border-radius: var(--vs-radius-lg);
+      padding: 10px 14px;
+      cursor: pointer;
+      transition: border-color 80ms ease, background-color 80ms ease;
+    }
+    .vs-card:hover { border-color: var(--vs-border); background: #28282a; }
+    .vs-card.is-selected {
+      border-color: var(--vs-red-dim);
+      background: #2f1d1d;
+      box-shadow: inset 2px 0 0 var(--vs-red-dim);
+    }
+
+    .vs-row-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .vs-row-meta {
+      margin-top: 6px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 4px 16px;
+      font-family: var(--vs-font-mono);
+      font-size: 11px;
+      color: var(--vs-fg-dim);
+    }
+    .vs-row-meta > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .vs-row-meta .vs-k { color: var(--vs-fg-muted); margin-right: 4px; }
+    .vs-row-meta .vs-v { color: var(--vs-fg); }
+    .vs-row-ua {
+      margin-top: 6px;
+      font-family: var(--vs-font-mono);
+      font-size: 10.5px;
+      color: var(--vs-fg-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .vs-row-ua .vs-k { color: #555; }
+
+    /* ---------- Status dot ---------- */
+    .vs-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .vs-dot--running { background: var(--vs-green); box-shadow: 0 0 6px rgba(13, 188, 121, 0.6); }
+    .vs-dot--stopped { background: #555; }
+
+    /* Legacy classes still referenced in JS */
+    .status-running { color: var(--vs-green); }
+    .status-stopped { color: #555; }
+
+    /* ---------- Checkbox ---------- */
+    .vs-check {
+      width: 14px;
+      height: 14px;
+      border-radius: 2px;
+      border: 1px solid var(--vs-border);
+      background: var(--vs-bg-input);
+      accent-color: var(--vs-accent);
+      cursor: pointer;
+    }
+
+    /* ---------- Badge ---------- */
+    .vs-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 6px;
+      font-size: 10.5px;
+      line-height: 1.4;
+      border-radius: 2px;
+      border: 1px solid transparent;
+      background: rgba(86, 156, 214, 0.12);
+      color: var(--vs-blue);
+      font-family: var(--vs-font-mono);
+    }
+    .vs-badge--muted {
+      background: transparent;
+      border-color: var(--vs-border);
+      color: var(--vs-fg-dim);
+    }
+
+    .vs-id {
+      font-family: var(--vs-font-mono);
+      font-size: 10.5px;
+      color: var(--vs-fg-muted);
+      letter-spacing: 0.3px;
+    }
+
+    /* ---------- Modal ---------- */
+    .vs-modal-mask {
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(2px);
+    }
+    .vs-modal {
+      background: var(--vs-bg-alt);
+      border: 1px solid var(--vs-border);
+      border-radius: var(--vs-radius-lg);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    }
+    .vs-modal-header {
+      height: 42px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--vs-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .vs-modal-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--vs-fg-strong);
+    }
+    .vs-modal-close {
+      width: 26px; height: 26px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: var(--vs-radius);
+      color: var(--vs-fg-dim);
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+    }
+    .vs-modal-close:hover { background: var(--vs-bg-hover); color: var(--vs-fg); }
+    .vs-modal-body { padding: 14px 16px; }
+    .vs-modal-footer {
+      padding: 10px 16px;
+      border-top: 1px solid var(--vs-border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .vs-inline-status {
+      min-height: 16px;
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--vs-fg-muted);
+    }
+    .vs-inline-status[data-tone="info"] { color: var(--vs-blue); }
+    .vs-inline-status[data-tone="success"] { color: var(--vs-green); }
+    .vs-inline-status[data-tone="error"] { color: #fca5a5; }
+
+    /* Section separators inside modal */
+    .vs-section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--vs-fg-dim);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .vs-divider {
+      height: 1px;
+      background: var(--vs-border);
+      margin: 12px 0;
+    }
+
+    /* ---------- Toggle ---------- */
+    .vs-toggle {
+      position: relative;
+      width: 34px;
+      height: 18px;
+      background: #555;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 120ms ease;
+    }
+    .vs-toggle::after {
+      content: "";
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 14px; height: 14px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 120ms ease;
+    }
+    input:checked + .vs-toggle { background: var(--vs-accent); }
+    input:checked + .vs-toggle::after { transform: translateX(16px); }
+
+    /* ---------- Logs panel ---------- */
+    .vs-logs {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 300px;
+      background: #181818;
+      border-top: 1px solid var(--vs-border);
+      box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+    }
+    .vs-logs-header {
+      height: 32px;
+      flex: none;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--vs-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--vs-bg-alt);
+    }
+    .vs-logs-tab {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--vs-fg-strong);
+      padding: 0 4px;
+      position: relative;
+    }
+    .vs-logs-tab::after {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; bottom: -9px;
+      height: 1px;
+      background: var(--vs-border-focus);
+    }
+    .vs-logs-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 12px;
+      font-family: var(--vs-font-mono);
+      font-size: 11.5px;
+      line-height: 1.55;
+    }
+    .log-row { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-word; }
+    .log-time { color: #5a5a5a; flex-shrink: 0; }
+    .log-level { flex-shrink: 0; font-weight: 600; width: 48px; }
+    .log-source { color: var(--vs-purple); flex-shrink: 0; }
+    .log-msg { color: var(--vs-fg); flex: 1; min-width: 0; }
+    .log-detail { color: var(--vs-fg-muted); }
+    .log-info  .log-level { color: var(--vs-blue); }
+    .log-warn  .log-level { color: var(--vs-yellow); }
+    .log-error .log-level { color: var(--vs-red-dim); }
+    .log-error .log-msg   { color: #fca5a5; }
+
+    /* ---------- Empty state ---------- */
+    .vs-empty {
+      padding: 80px 16px;
+      text-align: center;
+      color: var(--vs-fg-muted);
+    }
+    .vs-empty-title { font-size: 14px; color: var(--vs-fg-dim); margin-bottom: 6px; }
+    .vs-empty-hint  { font-size: 12px; color: var(--vs-fg-muted); }
+
+    /* ---------- Toast (keeps legacy class names used by temp-browsers.js) ---------- */
+    .temp-toast {
+      position: fixed;
+      top: 1rem;
+      right: 1.25rem;
+      z-index: 60;
+      max-width: 24rem;
+      padding: 10px 12px;
+      border-radius: var(--vs-radius-lg);
+      border: 1px solid transparent;
+      background: var(--vs-bg-alt);
+      color: var(--vs-fg);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+      font-size: 12.5px;
+      line-height: 1.45;
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+    .temp-toast__row { display: flex; align-items: center; gap: 10px; }
+    .temp-toast__message { flex: 1; }
+    .temp-toast__spinner {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      flex-shrink: 0;
+    }
+    .temp-toast__spinner-dot {
+      width: 5px; height: 5px;
+      border-radius: 9999px;
+      background: currentColor;
+      opacity: 0.35;
+      animation: temp-toast-bounce 0.9s infinite ease-in-out;
+    }
+    .temp-toast__spinner-dot:nth-child(2) { animation-delay: 0.15s; }
+    .temp-toast__spinner-dot:nth-child(3) { animation-delay: 0.3s; }
+    .temp-toast__close {
+      flex-shrink: 0;
+      width: 20px; height: 20px;
+      border: 0;
+      border-radius: var(--vs-radius);
+      background: transparent;
+      color: var(--vs-fg-dim);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .temp-toast__close:hover { background: var(--vs-bg-hover); color: var(--vs-fg); }
+    .temp-toast__close:focus-visible {
+      outline: 1px solid var(--vs-border-focus);
+      outline-offset: 1px;
+    }
+    .temp-toast--info {
+      border-color: rgba(86, 156, 214, 0.45);
+      color: var(--vs-blue);
+    }
+    .temp-toast--info  .temp-toast__message { color: var(--vs-fg); }
+    .temp-toast--success {
+      border-color: rgba(78, 201, 176, 0.5);
+      color: var(--vs-green-dim);
+    }
+    .temp-toast--success .temp-toast__message { color: #dcfce7; }
+    .temp-toast--error {
+      border-color: rgba(244, 135, 113, 0.55);
+      color: var(--vs-red-dim);
+    }
+    .temp-toast--error .temp-toast__message { color: #fecaca; }
+    .temp-toast[hidden] { display: none !important; }
+    @keyframes temp-toast-bounce {
+      0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+      40%           { opacity: 1;    transform: translateY(-2px); }
+    }
+
+    /* Modal mask legacy */
+    .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(2px); }
+
+    /* Browser list gap override */
+    #browser-list { display: grid; gap: 8px; }
+
+    /* Tighter body on modals that scroll */
+    .vs-modal-scroll { max-height: 85vh; overflow-y: auto; }
+
+    /* Group list item */
+    .vs-group-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      background: var(--vs-bg-elevated);
+      border: 1px solid var(--vs-border-subtle);
+      border-radius: var(--vs-radius);
+      font-size: 12px;
+    }
+    .vs-group-item:hover { border-color: var(--vs-border); }
+
+    /* Inline small select on card rows */
+    .vs-select--inline {
+      height: 22px;
+      font-size: 11px;
+      padding: 0 22px 0 6px;
+      background-size: 12px;
+      background-position: right 4px center;
+    }
+
+    /* Kbd-like hint */
+    .vs-kbd {
+      font-family: var(--vs-font-mono);
+      font-size: 10.5px;
+      color: var(--vs-fg-dim);
+    }
+
+    /* Count pill on header */
+    .vs-count {
+      font-family: var(--vs-font-mono);
+      font-size: 11px;
+      color: var(--vs-fg-dim);
+      padding: 2px 8px;
+      border: 1px solid var(--vs-border);
+      border-radius: 10px;
+      background: transparent;
+      white-space: nowrap;
+    }
+    .vs-count--error {
+      color: var(--vs-red-dim);
+      border-color: rgba(244, 135, 113, 0.45);
+      cursor: pointer;
+    }
+    .vs-count--error:hover {
+      background: rgba(244, 135, 113, 0.08);
+    }
+
+    /* Focus ring reset */
+    button:focus { outline: none; }
+    button:focus-visible { outline: 1px solid var(--vs-border-focus); outline-offset: 1px; }
+  </style>
+</head>
+<body>
+
+  <div id="temp-browser-toast" class="temp-toast temp-toast--info" hidden aria-live="polite">
+    <div class="temp-toast__row">
+      <span id="temp-browser-toast-spinner" class="temp-toast__spinner" hidden aria-hidden="true">
+        <span class="temp-toast__spinner-dot"></span>
+        <span class="temp-toast__spinner-dot"></span>
+        <span class="temp-toast__spinner-dot"></span>
+      </span>
+      <span id="temp-browser-toast-message" class="temp-toast__message"></span>
+      <button id="temp-browser-toast-close" class="temp-toast__close" type="button" hidden aria-label="关闭提示">
+        ×
+      </button>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header class="vs-header">
+    <h1 class="vs-title">
+      <span>Browser Manager</span>
+      <span class="vs-title-meta">v0.1.0</span>
+    </h1>
+    <div class="flex items-center gap-2 flex-wrap justify-end">
+      <button onclick="toggleLogs()" id="btn-logs" class="vs-btn vs-btn--ghost">
+        Logs
+      </button>
+      <button onclick="openCreateModal()" class="vs-btn vs-btn--primary">
+        + 创建浏览器
+      </button>
+      <span class="vs-divider-v"></span>
+      <span id="temp-browser-count" class="vs-count">临时浏览器：-- 个</span>
+      <button id="btn-create-temp-browser" class="vs-btn vs-btn--ghost vs-btn--sm">
+        创建临时浏览器
+      </button>
+      <button id="btn-close-temp-browsers" class="vs-btn vs-btn--danger vs-btn--sm" disabled>
+        一键关闭
+      </button>
+    </div>
+  </header>
+
+  <!-- Toolbar: search + group management -->
+  <div class="vs-toolbar">
+    <input id="search-input" type="text" placeholder="搜索名称…" oninput="onSearch()" class="vs-input" style="width: 220px;">
+    <select id="group-filter" onchange="onSearch()" class="vs-select" style="width: 160px;">
+      <option value="">全部分组</option>
+      <option value="__none__">未分组</option>
+    </select>
+    <button onclick="openGroupManager()" class="vs-btn vs-btn--ghost vs-btn--sm">管理分组</button>
+
+    <div class="ml-auto flex items-center gap-2 flex-wrap">
+      <span id="selection-count" class="vs-kbd">已选 0 项</span>
+      <button id="btn-select-visible" onclick="selectVisibleBrowsers()" class="vs-btn vs-btn--ghost vs-btn--sm">全选当前</button>
+      <button id="btn-clear-selection" onclick="clearSelection()" class="vs-btn vs-btn--ghost vs-btn--sm" disabled>清空</button>
+      <button id="btn-bulk-delete" onclick="openBulkDeleteModal()" class="vs-btn vs-btn--danger vs-btn--sm" disabled>批量删除</button>
+    </div>
+  </div>
+
+  <!-- Browser List -->
+  <main class="vs-main">
+    <div id="browser-list"></div>
+    <div id="empty-state" class="hidden vs-empty">
+      <p class="vs-empty-title">暂无浏览器实例</p>
+      <p class="vs-empty-hint">点击右上角「创建浏览器」开始</p>
+    </div>
+  </main>
+
+  <!-- Group Manager Modal -->
+  <div id="group-modal" class="hidden fixed inset-0 z-50 modal-mask flex items-center justify-center">
+    <div class="vs-modal w-full max-w-sm mx-4">
+      <div class="vs-modal-header">
+        <h2 class="vs-modal-title">管理分组</h2>
+        <button onclick="closeGroupManager()" class="vs-modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="vs-modal-body">
+        <div class="flex gap-2 mb-3">
+          <input id="new-group-name" type="text" placeholder="新分组名称" class="vs-input">
+          <button onclick="createGroup()" class="vs-btn vs-btn--primary vs-btn--sm">添加</button>
+        </div>
+        <div id="group-list" class="space-y-1.5 max-h-60 overflow-y-auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Modal -->
+  <div id="modal" class="hidden fixed inset-0 z-50 modal-mask flex items-center justify-center">
+    <div class="vs-modal vs-modal-scroll w-full max-w-2xl mx-4">
+      <div class="vs-modal-header">
+        <h2 id="browser-modal-title" class="vs-modal-title">创建浏览器</h2>
+        <button onclick="closeModal()" class="vs-modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="vs-modal-body space-y-3">
+        <!-- Name -->
+        <div>
+          <label class="vs-label">名称</label>
+          <input id="f-name" type="text" placeholder="Browser 1" class="vs-input">
+        </div>
+
+        <!-- Group -->
+        <div>
+          <label class="vs-label">分组</label>
+          <select id="f-group" class="vs-select">
+            <option value="">无分组</option>
+          </select>
+        </div>
+
+        <!-- Language -->
+        <div>
+          <label class="vs-label">浏览器语言</label>
+          <select id="f-language" class="vs-select">
+            <option value="zh-CN">中文 (zh-CN)</option>
+            <option value="en-US">English (en-US)</option>
+            <option value="ja">日本語 (ja)</option>
+            <option value="ko">한국어 (ko)</option>
+            <option value="fr">Français (fr)</option>
+            <option value="de">Deutsch (de)</option>
+            <option value="es">Español (es)</option>
+            <option value="pt-BR">Português (pt-BR)</option>
+            <option value="ru">Русский (ru)</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="vs-section-title mb-2">代理（选填）</div>
+          <div class="space-y-2">
+            <div>
+              <label class="vs-label">代理串</label>
+              <input
+                id="f-proxy-combined"
+                type="text"
+                placeholder="165.154.172.188:1626:d0f18d2ca804:xi2p8f59e3hiychqytba"
+                class="vs-input vs-input--mono"
+                autocomplete="off"
+              >
+              <p class="text-xs mt-1" style="color: var(--vs-fg-muted);">
+                支持 <span class="font-mono">IP:端口:用户名:密码</span>，输入后会自动拆分到下面 4 个字段；留空则直连。
+              </p>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="vs-label">IP / Host</label>
+                <input id="f-proxy-host" type="text" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+              <div>
+                <label class="vs-label">端口</label>
+                <input id="f-proxy-port" type="number" min="1" max="65535" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+              <div>
+                <label class="vs-label">用户名</label>
+                <input id="f-proxy-username" type="text" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+              <div>
+                <label class="vs-label">密码</label>
+                <input id="f-proxy-password" type="password" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button id="btn-test-proxy" type="button" class="vs-btn vs-btn--ghost vs-btn--sm">测试代理</button>
+              <span id="proxy-test-result" class="vs-inline-status"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- CORS Switch -->
+        <div class="flex items-center justify-between pt-1">
+          <div>
+            <div class="text-xs" style="color: var(--vs-fg);">关闭跨域检测</div>
+            <div class="text-xs" style="color: var(--vs-fg-muted);">启用后将禁用 CORS 安全策略</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input id="f-cors" type="checkbox" class="sr-only peer">
+            <span class="vs-toggle"></span>
+          </label>
+        </div>
+
+        <div class="vs-divider"></div>
+
+        <!-- Fingerprint Section -->
+        <div>
+          <div class="vs-section-title">
+            <span>指纹参数</span>
+            <button onclick="randomizeFingerprint()" class="vs-btn vs-btn--ghost vs-btn--xs">🎲 随机</button>
+          </div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="vs-label">User-Agent</label>
+              <input id="fp-ua" type="text" class="vs-input vs-input--mono">
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="vs-label">Platform</label>
+                <select id="fp-platform" class="vs-select">
+                  <option value="Win32">Win32</option>
+                  <option value="MacIntel">MacIntel</option>
+                  <option value="Linux x86_64">Linux x86_64</option>
+                </select>
+              </div>
+              <div>
+                <label class="vs-label">分辨率</label>
+                <div class="flex gap-1 items-center">
+                  <input id="fp-sw" type="number" class="vs-input">
+                  <span class="vs-kbd">×</span>
+                  <input id="fp-sh" type="number" class="vs-input">
+                </div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="vs-label">CPU 核心</label>
+                <select id="fp-cores" class="vs-select">
+                  <option value="2">2</option>
+                  <option value="4">4</option>
+                  <option value="6">6</option>
+                  <option value="8">8</option>
+                  <option value="10">10</option>
+                  <option value="12">12</option>
+                  <option value="16">16</option>
+                </select>
+              </div>
+              <div>
+                <label class="vs-label">内存 (GB)</label>
+                <select id="fp-memory" class="vs-select">
+                  <option value="2">2</option>
+                  <option value="4">4</option>
+                  <option value="8">8</option>
+                  <option value="16">16</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="vs-label">WebGL Vendor</label>
+              <input id="fp-glvendor" type="text" class="vs-input vs-input--mono">
+            </div>
+            <div>
+              <label class="vs-label">WebGL Renderer</label>
+              <input id="fp-glrenderer" type="text" class="vs-input vs-input--mono">
+            </div>
+
+            <div class="vs-divider"></div>
+            <div class="vs-section-title">扩展指纹</div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="vs-label">时区</label>
+                <select id="fp-tz" class="vs-select">
+                  <option value="Asia/Shanghai">Asia/Shanghai (+8)</option>
+                  <option value="Asia/Tokyo">Asia/Tokyo (+9)</option>
+                  <option value="Asia/Seoul">Asia/Seoul (+9)</option>
+                  <option value="America/New_York">America/New_York (-5)</option>
+                  <option value="America/Chicago">America/Chicago (-6)</option>
+                  <option value="America/Los_Angeles">America/Los_Angeles (-8)</option>
+                  <option value="Europe/London">Europe/London (0)</option>
+                  <option value="Europe/Berlin">Europe/Berlin (+1)</option>
+                  <option value="Europe/Paris">Europe/Paris (+1)</option>
+                  <option value="Australia/Sydney">Australia/Sydney (+11)</option>
+                </select>
+              </div>
+              <div>
+                <label class="vs-label">Pixel Ratio</label>
+                <select id="fp-dpr" class="vs-select">
+                  <option value="1">1</option>
+                  <option value="1.25">1.25</option>
+                  <option value="1.5">1.5</option>
+                  <option value="2">2</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="vs-label">Touch Points</label>
+                <select id="fp-touch" class="vs-select">
+                  <option value="0">0 (桌面)</option>
+                  <option value="1">1</option>
+                  <option value="5">5</option>
+                  <option value="10">10</option>
+                </select>
+              </div>
+              <div>
+                <label class="vs-label">Do Not Track</label>
+                <select id="fp-dnt" class="vs-select">
+                  <option value="null">未设置</option>
+                  <option value="1">1 (开启)</option>
+                  <option value="unspecified">unspecified</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="vs-label">WebRTC 策略</label>
+                <select id="fp-webrtc" class="vs-select">
+                  <option value="default">默认</option>
+                  <option value="public_only">仅公网 IP</option>
+                  <option value="disable">禁用</option>
+                </select>
+              </div>
+              <div>
+                <label class="vs-label">网络类型</label>
+                <select id="fp-conn" class="vs-select">
+                  <option value="wifi">WiFi</option>
+                  <option value="4g">4G</option>
+                  <option value="ethernet">Ethernet</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="vs-label">麦克风</label>
+                <select id="fp-mic" class="vs-select">
+                  <option value="1">1</option><option value="2">2</option>
+                </select>
+              </div>
+              <div>
+                <label class="vs-label">摄像头</label>
+                <select id="fp-cam" class="vs-select">
+                  <option value="0">0</option><option value="1">1</option>
+                </select>
+              </div>
+              <div>
+                <label class="vs-label">扬声器</label>
+                <select id="fp-spk" class="vs-select">
+                  <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="vs-label">Canvas / Audio 噪声种子 <span style="color: var(--vs-fg-muted);">(随机生成即可)</span></label>
+              <div class="grid grid-cols-2 gap-3">
+                <input id="fp-canvas-seed" type="number" placeholder="Canvas seed" class="vs-input">
+                <input id="fp-audio-seed" type="number" placeholder="Audio seed" class="vs-input">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="vs-modal-footer">
+        <button onclick="closeModal()" class="vs-btn vs-btn--ghost">取消</button>
+        <button id="browser-submit-btn" onclick="submitBrowser()" class="vs-btn vs-btn--primary">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Temp Browser Modal -->
+  <div id="temp-browser-modal" class="hidden fixed inset-0 z-50 modal-mask flex items-center justify-center">
+    <div class="vs-modal vs-modal-scroll w-full max-w-xl mx-4">
+      <div class="vs-modal-header">
+        <h2 class="vs-modal-title">创建临时浏览器</h2>
+        <button id="temp-browser-modal-close" class="vs-modal-close" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="vs-modal-body space-y-3">
+        <div>
+          <div class="vs-section-title mb-2">代理（选填）</div>
+          <div class="space-y-2">
+            <div>
+              <label class="vs-label">代理串</label>
+              <input
+                id="temp-proxy-combined"
+                type="text"
+                placeholder="165.154.172.188:1626:d0f18d2ca804:xi2p8f59e3hiychqytba"
+                class="vs-input vs-input--mono"
+                autocomplete="off"
+              >
+              <p class="text-xs mt-1" style="color: var(--vs-fg-muted);">
+                支持 <span class="font-mono">IP:端口:用户名:密码</span>，不填则直接创建无代理临时浏览器。
+              </p>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="vs-label">IP / Host</label>
+                <input id="temp-proxy-host" type="text" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+              <div>
+                <label class="vs-label">端口</label>
+                <input id="temp-proxy-port" type="number" min="1" max="65535" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+              <div>
+                <label class="vs-label">用户名</label>
+                <input id="temp-proxy-username" type="text" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+              <div>
+                <label class="vs-label">密码</label>
+                <input id="temp-proxy-password" type="password" class="vs-input vs-input--mono" autocomplete="off">
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button id="btn-test-temp-proxy" type="button" class="vs-btn vs-btn--ghost vs-btn--sm">测试代理</button>
+              <span id="temp-proxy-test-result" class="vs-inline-status"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="vs-modal-footer">
+        <button id="btn-cancel-temp-browser" class="vs-btn vs-btn--ghost" type="button">取消</button>
+        <button id="btn-submit-temp-browser" class="vs-btn vs-btn--primary" type="button">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Confirm Modal -->
+  <div id="delete-modal" class="hidden fixed inset-0 z-50 modal-mask flex items-center justify-center">
+    <div class="vs-modal w-full max-w-sm mx-4">
+      <div class="vs-modal-header">
+        <h2 class="vs-modal-title">确认删除</h2>
+        <button onclick="closeDeleteModal()" class="vs-modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="vs-modal-body">
+        <p id="delete-modal-text" class="text-sm" style="color: var(--vs-fg-dim);">将彻底删除该浏览器实例及其所有数据（Profile、缓存、Cookie 等），此操作不可恢复。</p>
+      </div>
+      <div class="vs-modal-footer">
+        <button onclick="closeDeleteModal()" class="vs-btn vs-btn--ghost">取消</button>
+        <button onclick="confirmDelete()" class="vs-btn vs-btn--danger">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logs Panel -->
+  <div id="logs-panel" class="hidden vs-logs">
+    <div class="vs-logs-header">
+      <div class="flex items-center gap-3">
+        <span class="vs-logs-tab">Logs</span>
+        <select id="log-filter" onchange="loadLogs()" class="vs-select vs-select--inline" style="width: 100px;">
+          <option value="">全部</option>
+          <option value="info">INFO</option>
+          <option value="warn">WARN</option>
+          <option value="error">ERROR</option>
+        </select>
+      </div>
+      <div class="flex gap-1">
+        <button onclick="loadLogs()" class="vs-btn vs-btn--ghost vs-btn--xs">刷新</button>
+        <button onclick="clearLogsAction()" class="vs-btn vs-btn--ghost vs-btn--xs">清空</button>
+        <button onclick="toggleLogs()" class="vs-btn vs-btn--ghost vs-btn--xs">关闭</button>
+      </div>
+    </div>
+    <div id="logs-content" class="vs-logs-body"></div>
+  </div>
+
+<script src="/batch-delete.js"></script>
+<script>
+const API = '/api';
+let deleteTargetIds = [];
+let allBrowsers = [];
+let allGroups = [];
+let lastRenderedBrowsers = [];
+let selectedBrowserIds = new Set();
+let editingBrowserId = null;
+
+// ---- API helpers ----
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error || `Request failed: ${res.status}`);
+  }
+  return data;
+}
+
+function splitProxyInput(value) {
+  const raw = value.trim();
+  if (!raw) {
+    return { host: '', port: '', username: '', password: '' };
+  }
+  const parts = raw.split(':');
+  return {
+    host: parts[0]?.trim() || '',
+    port: parts[1]?.trim() || '',
+    username: parts[2]?.trim() || '',
+    password: parts.slice(3).join(':').trim(),
+  };
+}
+
+function composeProxyInput(fields) {
+  const host = fields.host.trim();
+  const port = fields.port.trim();
+  const username = fields.username.trim();
+  const password = fields.password.trim();
+
+  if (!host && !port && !username && !password) return '';
+  if (!username && !password) return [host, port].filter(Boolean).join(':');
+  if (!password) return `${host}:${port}:${username}`;
+  return `${host}:${port}:${username}:${password}`;
+}
+
+function normalizeProxyValue(fields) {
+  const host = fields.host.trim();
+  const portRaw = fields.port.trim();
+  const username = fields.username.trim();
+  const password = fields.password.trim();
+
+  if (!host && !portRaw && !username && !password) {
+    return null;
+  }
+  if (!host) {
+    throw new Error('代理 IP / Host 不能为空');
+  }
+
+  const port = Number.parseInt(portRaw, 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('代理端口必须是 1 到 65535 的整数');
+  }
+
+  return { host, port, username, password };
+}
+
+function initProxyFieldController(ids) {
+  const combinedEl = document.getElementById(ids.combined);
+  const hostEl = document.getElementById(ids.host);
+  const portEl = document.getElementById(ids.port);
+  const usernameEl = document.getElementById(ids.username);
+  const passwordEl = document.getElementById(ids.password);
+
+  if (!combinedEl || !hostEl || !portEl || !usernameEl || !passwordEl) {
+    return {
+      reset() {},
+      setValue() {},
+      getValue() { return null; },
+    };
+  }
+
+  function getFields() {
+    return {
+      host: hostEl.value,
+      port: portEl.value,
+      username: usernameEl.value,
+      password: passwordEl.value,
+    };
+  }
+
+  function syncFromCombined() {
+    const parsed = splitProxyInput(combinedEl.value);
+    hostEl.value = parsed.host;
+    portEl.value = parsed.port;
+    usernameEl.value = parsed.username;
+    passwordEl.value = parsed.password;
+  }
+
+  function syncCombined() {
+    combinedEl.value = composeProxyInput(getFields());
+  }
+
+  combinedEl.addEventListener('input', syncFromCombined);
+  [hostEl, portEl, usernameEl, passwordEl].forEach((el) => {
+    el.addEventListener('input', syncCombined);
+  });
+
+  return {
+    reset() {
+      combinedEl.value = '';
+      hostEl.value = '';
+      portEl.value = '';
+      usernameEl.value = '';
+      passwordEl.value = '';
+    },
+    setValue(proxy) {
+      if (!proxy) {
+        this.reset();
+        return;
+      }
+      hostEl.value = proxy.host || '';
+      portEl.value = proxy.port == null ? '' : String(proxy.port);
+      usernameEl.value = proxy.username || '';
+      passwordEl.value = proxy.password || '';
+      syncCombined();
+    },
+    getValue() {
+      return normalizeProxyValue(getFields());
+    },
+  };
+}
+
+function formatProxySummary(proxy) {
+  if (!proxy || !proxy.host) {
+    return '直连';
+  }
+  if (proxy.username) {
+    return `${proxy.host}:${proxy.port}@${proxy.username}`;
+  }
+  return `${proxy.host}:${proxy.port}`;
+}
+
+window.initProxyFieldController = initProxyFieldController;
+const createProxyController = initProxyFieldController({
+  combined: 'f-proxy-combined',
+  host: 'f-proxy-host',
+  port: 'f-proxy-port',
+  username: 'f-proxy-username',
+  password: 'f-proxy-password',
+});
+
+function initProxyTestController(options) {
+  const buttonEl = document.getElementById(options.buttonId);
+  const resultEl = document.getElementById(options.resultId);
+  const idleLabel = buttonEl?.textContent || '测试代理';
+
+  function setResult(tone, message) {
+    if (!resultEl) return;
+    resultEl.textContent = message || '';
+    if (tone) {
+      resultEl.dataset.tone = tone;
+    } else {
+      delete resultEl.dataset.tone;
+    }
+  }
+
+  function reset() {
+    setResult('', '');
+  }
+
+  options.fieldIds.forEach((id) => {
+    document.getElementById(id)?.addEventListener('input', reset);
+  });
+
+  async function run() {
+    if (!buttonEl) return null;
+
+    let proxy;
+    try {
+      proxy = options.proxyController.getValue();
+    } catch (error) {
+      setResult('error', error?.message || '代理配置无效');
+      return null;
+    }
+
+    if (!proxy) {
+      setResult('error', '请先填写代理配置');
+      return null;
+    }
+
+    buttonEl.disabled = true;
+    buttonEl.textContent = '测试中...';
+    setResult('info', '正在测试代理连通性...');
+
+    try {
+      const result = await api('/proxy/test', {
+        method: 'POST',
+        body: JSON.stringify({ proxy }),
+      });
+      const successText = result.ip
+        ? `连通成功，出口 IP：${result.ip}`
+        : '连通成功';
+      setResult('success', successText);
+      return result;
+    } catch (error) {
+      setResult('error', error?.message || '代理测试失败');
+      return null;
+    } finally {
+      buttonEl.disabled = false;
+      buttonEl.textContent = idleLabel;
+    }
+  }
+
+  buttonEl?.addEventListener('click', () => {
+    void run();
+  });
+
+  return { reset, run };
+}
+
+window.initProxyTestController = initProxyTestController;
+const createProxyTestController = initProxyTestController({
+  buttonId: 'btn-test-proxy',
+  resultId: 'proxy-test-result',
+  proxyController: createProxyController,
+  fieldIds: ['f-proxy-combined', 'f-proxy-host', 'f-proxy-port', 'f-proxy-username', 'f-proxy-password'],
+});
+
+// ---- Groups ----
+async function loadGroups() {
+  allGroups = await api('/groups');
+  refreshGroupSelects();
+}
+
+function refreshGroupSelects() {
+  const groupFilter = document.getElementById('group-filter');
+  const fGroup = document.getElementById('f-group');
+  const currentFilter = groupFilter.value;
+  const currentCreate = fGroup.value;
+
+  // Filter select
+  groupFilter.innerHTML = '<option value="">全部分组</option><option value="__none__">未分组</option>';
+  allGroups.forEach(g => {
+    groupFilter.innerHTML += `<option value="${g.id}">${esc(g.name)}</option>`;
+  });
+  groupFilter.value = currentFilter;
+
+  // Create modal select
+  fGroup.innerHTML = '<option value="">无分组</option>';
+  allGroups.forEach(g => {
+    fGroup.innerHTML += `<option value="${g.id}">${esc(g.name)}</option>`;
+  });
+  fGroup.value = currentCreate;
+}
+
+function getGroupName(groupId) {
+  if (!groupId) return null;
+  const g = allGroups.find(x => x.id === groupId);
+  return g ? g.name : null;
+}
+
+function openGroupManager() {
+  document.getElementById('group-modal').classList.remove('hidden');
+  renderGroupList();
+}
+function closeGroupManager() {
+  document.getElementById('group-modal').classList.add('hidden');
+}
+document.getElementById('group-modal')?.addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeGroupManager();
+});
+
+async function createGroup() {
+  const input = document.getElementById('new-group-name');
+  const name = input.value.trim();
+  if (!name) return;
+  await api('/groups', { method: 'POST', body: JSON.stringify({ name }) });
+  input.value = '';
+  await loadGroups();
+  renderGroupList();
+}
+
+async function deleteGroup(id) {
+  await api(`/groups/${id}`, { method: 'DELETE' });
+  await loadGroups();
+  renderGroupList();
+  loadBrowsers();
+}
+
+function renderGroupList() {
+  const el = document.getElementById('group-list');
+  if (allGroups.length === 0) {
+    el.innerHTML = '<div style="color: var(--vs-fg-muted); font-size: 12px; padding: 6px 2px;">暂无分组</div>';
+    return;
+  }
+  el.innerHTML = allGroups.map(g => `
+    <div class="vs-group-item">
+      <span>${esc(g.name)}</span>
+      <button onclick="deleteGroup('${g.id}')" class="vs-btn vs-btn--ghost vs-btn--xs" style="color: var(--vs-red-dim);">删除</button>
+    </div>
+  `).join('');
+}
+
+async function changeBrowserGroup(browserId, groupId) {
+  await api(`/browsers/${browserId}/group`, { method: 'PUT', body: JSON.stringify({ groupId: groupId || null }) });
+  loadBrowsers();
+}
+
+// ---- Load & Render ----
+async function loadBrowsers() {
+  allBrowsers = await api('/browsers');
+  pruneSelection();
+  onSearch();
+}
+
+function onSearch() {
+  const query = document.getElementById('search-input').value.toLowerCase().trim();
+  const groupFilter = document.getElementById('group-filter').value;
+  let filtered = allBrowsers;
+  if (query) {
+    filtered = filtered.filter(b => b.name.toLowerCase().includes(query));
+  }
+  if (groupFilter === '__none__') {
+    filtered = filtered.filter(b => !b.groupId);
+  } else if (groupFilter) {
+    filtered = filtered.filter(b => b.groupId === groupFilter);
+  }
+  render(filtered);
+}
+
+function render(browsers) {
+  const list = document.getElementById('browser-list');
+  const empty = document.getElementById('empty-state');
+  lastRenderedBrowsers = browsers.slice();
+
+  if (browsers.length === 0) {
+    list.innerHTML = '';
+    empty.classList.remove('hidden');
+    updateSelectionToolbar();
+    return;
+  }
+
+  empty.classList.add('hidden');
+  list.innerHTML = browsers.map(b => {
+    const isSelected = selectedBrowserIds.has(b.id);
+    const gName = getGroupName(b.groupId);
+    const proxyLabel = formatProxySummary(b.proxy);
+    const groupOpts = allGroups.map(g =>
+      `<option value="${g.id}" ${b.groupId===g.id?'selected':''}>${esc(g.name)}</option>`
+    ).join('');
+    const webrtcLabel = ({'default':'默认','disable':'禁用','public_only':'仅公网'})[b.fingerprint.webrtcPolicy] || '-';
+    return `
+    <div class="vs-card ${isSelected ? 'is-selected' : ''}" onclick="onCardClick(event, '${b.id}')">
+      <div class="vs-row-head">
+        <div class="flex items-center gap-3 min-w-0">
+          <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleBrowserSelection('${b.id}', this.checked)" class="vs-check">
+          <span class="vs-dot vs-dot--${b.status}"></span>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span style="font-size: 13px; color: var(--vs-fg-strong); font-weight: 500;">${esc(b.name)}</span>
+              ${gName ? `<span class="vs-badge">${esc(gName)}</span>` : ''}
+              <span class="vs-id">${b.id.slice(0, 8)}</span>
+            </div>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <select onchange="changeBrowserGroup('${b.id}', this.value)" class="vs-select vs-select--inline" style="width: 110px;">
+            <option value="" ${!b.groupId?'selected':''}>无分组</option>
+            ${groupOpts}
+          </select>
+          <button onclick="openEditModal('${b.id}')" class="vs-btn vs-btn--ghost vs-btn--sm">编辑</button>
+          ${b.status === 'stopped' ? `
+            <button onclick="launch('${b.id}')" class="vs-btn vs-btn--success vs-btn--sm">启动</button>
+          ` : `
+            <button onclick="close_('${b.id}')" class="vs-btn vs-btn--warn vs-btn--sm">关闭</button>
+          `}
+          <button onclick="openDeleteModal('${b.id}')" class="vs-btn vs-btn--danger vs-btn--sm">删除</button>
+        </div>
+      </div>
+      <div class="vs-row-meta">
+        <div><span class="vs-k">platform</span><span class="vs-v">${esc(b.fingerprint.platform)}</span></div>
+        <div><span class="vs-k">screen</span><span class="vs-v">${b.fingerprint.screenWidth}×${b.fingerprint.screenHeight}@${b.fingerprint.devicePixelRatio || 1}x</span></div>
+        <div><span class="vs-k">cpu</span><span class="vs-v">${b.fingerprint.hardwareConcurrency}c</span></div>
+        <div><span class="vs-k">mem</span><span class="vs-v">${b.fingerprint.deviceMemory}GB</span></div>
+        <div><span class="vs-k">lang</span><span class="vs-v">${esc(b.language)}</span></div>
+        <div><span class="vs-k">tz</span><span class="vs-v">${esc(b.fingerprint.timezone || '-')}</span></div>
+        <div><span class="vs-k">webrtc</span><span class="vs-v">${webrtcLabel}</span></div>
+        <div><span class="vs-k">proxy</span><span class="vs-v" style="color: ${b.proxy ? 'var(--vs-blue)' : 'var(--vs-fg-dim)'};">${esc(proxyLabel)}</span></div>
+        <div><span class="vs-k">cors</span><span class="vs-v" style="color: ${b.disableCors ? 'var(--vs-yellow)' : 'var(--vs-fg-dim)'};">${b.disableCors ? 'disabled' : 'on'}</span></div>
+      </div>
+      <div class="vs-row-ua" title="${esc(b.fingerprint.userAgent)}"><span class="vs-k">ua </span>${esc(b.fingerprint.userAgent)}</div>
+    </div>
+  `;
+  }).join('');
+  updateSelectionToolbar();
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ---- Actions ----
+async function launch(id) {
+  await api(`/browsers/${id}/launch`, { method: 'POST' });
+  loadBrowsers();
+}
+
+async function close_(id) {
+  await api(`/browsers/${id}/close`, { method: 'POST' });
+  loadBrowsers();
+}
+
+function pruneSelection() {
+  const validIds = new Set(allBrowsers.map(b => b.id));
+  selectedBrowserIds = new Set([...selectedBrowserIds].filter(id => validIds.has(id)));
+}
+
+function updateSelectionToolbar() {
+  const countEl = document.getElementById('selection-count');
+  const clearBtn = document.getElementById('btn-clear-selection');
+  const bulkBtn = document.getElementById('btn-bulk-delete');
+  const selectVisibleBtn = document.getElementById('btn-select-visible');
+  const hasSelection = selectedBrowserIds.size > 0;
+  const hasVisible = lastRenderedBrowsers.length > 0;
+
+  countEl.textContent = `已选 ${selectedBrowserIds.size} 项`;
+  clearBtn.disabled = !hasSelection;
+  bulkBtn.disabled = !hasSelection;
+  selectVisibleBtn.disabled = !hasVisible;
+}
+
+function toggleBrowserSelection(id, checked) {
+  if (checked) {
+    selectedBrowserIds.add(id);
+  } else {
+    selectedBrowserIds.delete(id);
+  }
+  render(lastRenderedBrowsers);
+}
+
+function onCardClick(event, id) {
+  // Ignore clicks on interactive elements inside the card
+  if (event.target.closest('button, select, input, a, label, option')) return;
+  // Ignore text selection gestures
+  const sel = window.getSelection && window.getSelection();
+  if (sel && sel.toString().length > 0) return;
+  toggleBrowserSelection(id, !selectedBrowserIds.has(id));
+}
+
+function selectVisibleBrowsers() {
+  lastRenderedBrowsers.forEach(browser => selectedBrowserIds.add(browser.id));
+  render(lastRenderedBrowsers);
+}
+
+function clearSelection() {
+  selectedBrowserIds.clear();
+  render(lastRenderedBrowsers);
+}
+
+function openBulkDeleteModal() {
+  openDeleteModal([...selectedBrowserIds]);
+}
+
+function openDeleteModal(target) {
+  const ids = Array.isArray(target) ? target.filter(Boolean) : [target];
+  if (ids.length === 0) return;
+  deleteTargetIds = ids;
+  const message = ids.length === 1
+    ? '将彻底删除该浏览器实例及其所有数据（Profile、缓存、Cookie 等），此操作不可恢复。'
+    : `将彻底删除 ${ids.length} 个浏览器实例及其所有数据（Profile、缓存、Cookie 等），此操作不可恢复。`;
+  document.getElementById('delete-modal-text').textContent = message;
+  document.getElementById('delete-modal').classList.remove('hidden');
+}
+
+function closeDeleteModal() {
+  deleteTargetIds = [];
+  document.getElementById('delete-modal').classList.add('hidden');
+}
+
+async function confirmDelete() {
+  if (deleteTargetIds.length === 0) return;
+  const btn = document.querySelector('#delete-modal .vs-btn--danger');
+  const ids = deleteTargetIds.slice();
+  let summary = '';
+  btn.textContent = '删除中...';
+  btn.disabled = true;
+  try {
+    if (ids.length === 1) {
+      await api(`/browsers/${ids[0]}`, { method: 'DELETE' });
+      selectedBrowserIds.delete(ids[0]);
+    } else {
+      const result = await window.runBatchDelete(
+        ids,
+        async (id) => {
+          await api(`/browsers/${id}`, { method: 'DELETE' });
+        },
+        10,
+      );
+
+      result.successIds.forEach(id => selectedBrowserIds.delete(id));
+
+      if (result.failedIds.length === 0) {
+        summary = `已删除 ${result.successIds.length} 项`;
+      } else if (result.successIds.length === 0) {
+        summary = `批量删除失败，${result.failedIds.length} 项未删除`;
+      } else {
+        summary = `已删除 ${result.successIds.length} 项，失败 ${result.failedIds.length} 项`;
+      }
+    }
+  } catch (e) {
+    summary = e?.message || '删除失败';
+  } finally {
+    btn.textContent = '删除';
+    btn.disabled = false;
+    closeDeleteModal();
+    await loadBrowsers();
+  }
+
+  if (summary) {
+    alert(summary);
+  }
+}
+
+// ---- Create Modal ----
+function setBrowserModalMode(isEditing) {
+  document.getElementById('browser-modal-title').textContent = isEditing ? '编辑浏览器' : '创建浏览器';
+  document.getElementById('browser-submit-btn').textContent = isEditing ? '保存' : '创建';
+}
+
+function applyFingerprintToForm(fp) {
+  const mediaDevices = fp.mediaDevices || {};
+
+  document.getElementById('fp-ua').value = fp.userAgent || '';
+  document.getElementById('fp-platform').value = fp.platform || 'Win32';
+  document.getElementById('fp-sw').value = fp.screenWidth ?? '';
+  document.getElementById('fp-sh').value = fp.screenHeight ?? '';
+  document.getElementById('fp-cores').value = String(fp.hardwareConcurrency ?? 4);
+  document.getElementById('fp-memory').value = String(fp.deviceMemory ?? 8);
+  document.getElementById('fp-glvendor').value = fp.webglVendor || '';
+  document.getElementById('fp-glrenderer').value = fp.webglRenderer || '';
+  document.getElementById('fp-tz').value = fp.timezone || 'Asia/Shanghai';
+  document.getElementById('fp-dpr').value = String(fp.devicePixelRatio ?? 1);
+  document.getElementById('fp-touch').value = String(fp.maxTouchPoints ?? 0);
+  document.getElementById('fp-dnt').value = fp.doNotTrack == null ? 'null' : String(fp.doNotTrack);
+  document.getElementById('fp-webrtc').value = fp.webrtcPolicy || 'default';
+  document.getElementById('fp-conn').value = fp.connectionType || 'wifi';
+  document.getElementById('fp-mic').value = String(mediaDevices.audioinput ?? 1);
+  document.getElementById('fp-cam').value = String(mediaDevices.videoinput ?? 0);
+  document.getElementById('fp-spk').value = String(mediaDevices.audiooutput ?? 1);
+  document.getElementById('fp-canvas-seed').value = fp.canvasNoiseSeed ?? '';
+  document.getElementById('fp-audio-seed').value = fp.audioNoiseSeed ?? '';
+}
+
+function openCreateModal() {
+  editingBrowserId = null;
+  setBrowserModalMode(false);
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-group').value = '';
+  document.getElementById('f-language').value = 'zh-CN';
+  document.getElementById('f-cors').checked = false;
+  createProxyController.reset();
+  createProxyTestController.reset();
+  refreshGroupSelects();
+  document.getElementById('modal').classList.remove('hidden');
+  randomizeFingerprint();
+}
+
+function openEditModal(id) {
+  const browser = allBrowsers.find(item => item.id === id);
+  if (!browser) return;
+
+  editingBrowserId = id;
+  setBrowserModalMode(true);
+  refreshGroupSelects();
+
+  document.getElementById('f-name').value = browser.name || '';
+  document.getElementById('f-group').value = browser.groupId || '';
+  document.getElementById('f-language').value = browser.language || 'zh-CN';
+  document.getElementById('f-cors').checked = !!browser.disableCors;
+  createProxyController.setValue(browser.proxy);
+  createProxyTestController.reset();
+  applyFingerprintToForm(browser.fingerprint || {});
+
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.add('hidden');
+  editingBrowserId = null;
+  createProxyTestController.reset();
+  setBrowserModalMode(false);
+}
+
+async function randomizeFingerprint() {
+  const fp = await api('/fingerprint/random');
+  applyFingerprintToForm(fp);
+}
+
+function collectBrowserFormData() {
+  const tzOffsets = {'Asia/Shanghai':-480,'Asia/Tokyo':-540,'Asia/Seoul':-540,'America/New_York':300,'America/Chicago':360,'America/Los_Angeles':480,'Europe/London':0,'Europe/Berlin':-60,'Europe/Paris':-60,'Australia/Sydney':-660};
+  const connDefaults = {'wifi':{d:15,r:50},'4g':{d:5.6,r:100},'ethernet':{d:100,r:10}};
+  const tz = document.getElementById('fp-tz').value;
+  const conn = document.getElementById('fp-conn').value;
+  const dntVal = document.getElementById('fp-dnt').value;
+
+  return {
+    name: document.getElementById('f-name').value || undefined,
+    language: document.getElementById('f-language').value,
+    proxy: createProxyController.getValue(),
+    disableCors: document.getElementById('f-cors').checked,
+    groupId: document.getElementById('f-group').value || null,
+    fingerprint: {
+      userAgent: document.getElementById('fp-ua').value,
+      platform: document.getElementById('fp-platform').value,
+      screenWidth: parseInt(document.getElementById('fp-sw').value, 10),
+      screenHeight: parseInt(document.getElementById('fp-sh').value, 10),
+      hardwareConcurrency: parseInt(document.getElementById('fp-cores').value, 10),
+      deviceMemory: parseInt(document.getElementById('fp-memory').value, 10),
+      webglVendor: document.getElementById('fp-glvendor').value,
+      webglRenderer: document.getElementById('fp-glrenderer').value,
+      timezone: tz,
+      timezoneOffset: tzOffsets[tz] || 0,
+      devicePixelRatio: parseFloat(document.getElementById('fp-dpr').value),
+      maxTouchPoints: parseInt(document.getElementById('fp-touch').value, 10),
+      doNotTrack: dntVal === 'null' ? null : dntVal,
+      canvasNoiseSeed: parseInt(document.getElementById('fp-canvas-seed').value, 10) || Math.floor(Math.random() * 999999),
+      audioNoiseSeed: parseInt(document.getElementById('fp-audio-seed').value, 10) || Math.floor(Math.random() * 999999),
+      webrtcPolicy: document.getElementById('fp-webrtc').value,
+      connectionType: conn,
+      connectionDownlink: connDefaults[conn]?.d || 10,
+      connectionRtt: connDefaults[conn]?.r || 50,
+      mediaDevices: {
+        audioinput: parseInt(document.getElementById('fp-mic').value, 10),
+        videoinput: parseInt(document.getElementById('fp-cam').value, 10),
+        audiooutput: parseInt(document.getElementById('fp-spk').value, 10),
+      },
+    },
+  };
+}
+
+async function submitBrowser() {
+  try {
+    const data = collectBrowserFormData();
+    if (editingBrowserId) {
+      await api(`/browsers/${editingBrowserId}`, { method: 'PUT', body: JSON.stringify(data) });
+    } else {
+      await api('/browsers', { method: 'POST', body: JSON.stringify(data) });
+    }
+    closeModal();
+    await loadBrowsers();
+  } catch (error) {
+    alert(error?.message || (editingBrowserId ? '保存浏览器失败' : '创建浏览器失败'));
+  }
+}
+
+// Close modals on backdrop click
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+document.getElementById('delete-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeDeleteModal();
+});
+
+// Init
+loadGroups().then(() => loadBrowsers());
+
+// ---- Logs ----
+let logsVisible = false;
+
+function toggleLogs() {
+  logsVisible = !logsVisible;
+  document.getElementById('logs-panel').classList.toggle('hidden', !logsVisible);
+  if (logsVisible) loadLogs();
+}
+
+async function loadLogs() {
+  const level = document.getElementById('log-filter').value;
+  const qs = level ? `?level=${level}` : '';
+  const logs = await api(`/logs${qs}`);
+  const el = document.getElementById('logs-content');
+  if (logs.length === 0) {
+    el.innerHTML = '<div style="color: var(--vs-fg-muted);">暂无日志</div>';
+    return;
+  }
+  el.innerHTML = logs.map(l => {
+    const time = l.createdAt.replace('T', ' ').slice(0, 19);
+    const levelCls = `log-${l.level}`;
+    return `<div class="log-row ${levelCls}"><span class="log-time">${time}</span><span class="log-level">${l.level.toUpperCase()}</span><span class="log-source">[${esc(l.source)}]</span><span class="log-msg">${esc(l.message)}${l.detail ? ' <span class="log-detail">' + esc(l.detail) + '</span>' : ''}</span></div>`;
+  }).join('');
+  el.scrollTop = 0;
+}
+
+async function clearLogsAction() {
+  await api('/logs', { method: 'DELETE' });
+  loadLogs();
+}
+</script>
+<script src="/temp-browsers.js"></script>
+</body>
+</html>

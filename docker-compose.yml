@@ -1,0 +1,18 @@
+services:
+  bw-use:
+    build: .
+    ports:
+      - "20000:20000"
+    volumes:
+      - bw-data:/app/data
+      # Linux X11: uncomment to enable GUI Chrome
+      # - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      - CHROME_PATH=/usr/bin/chromium
+      - CHROME_NO_SANDBOX=1
+      # Linux X11: set to your DISPLAY value (usually :0)
+      # - DISPLAY=${DISPLAY:-:0}
+    restart: unless-stopped
+
+volumes:
+  bw-data:
