@@ -11,6 +11,13 @@ import { handleTempBrowserApi } from "./temp-browser-api";
 
 const PORT = Number(process.env.BW_USE_PORT || "20000");
 const PUBLIC_DIR = join(import.meta.dir, "..", "public");
+const PACKAGE_JSON_PATH = join(import.meta.dir, "..", "package.json");
+
+const packageJson = JSON.parse(await readFile(PACKAGE_JSON_PATH, "utf-8")) as { version?: unknown };
+const APP_VERSION =
+  typeof packageJson.version === "string" && packageJson.version.trim()
+    ? packageJson.version.trim()
+    : "0.0.0";
 
 await ensureDirs();
 await recoverTempBrowsers();
@@ -31,7 +38,9 @@ const server = Bun.serve({
     // Serve static files
     if (pathname === "/" || pathname === "/index.html") {
       const html = await readFile(join(PUBLIC_DIR, "index.html"), "utf-8");
-      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      return new Response(html.replaceAll("__APP_VERSION__", APP_VERSION), {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
     }
 
     // Other static files

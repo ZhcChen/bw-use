@@ -108,6 +108,17 @@
       letter-spacing: 0;
       color: var(--vs-fg-dim);
     }
+    .vs-footer {
+      padding: 10px 16px 18px;
+      color: var(--vs-fg-muted);
+      font-size: 11px;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .vs-footer__version {
+      color: var(--vs-fg-dim);
+      font-family: var(--vs-font-mono);
+    }
     .vs-toolbar {
       height: 38px;
       padding: 0 16px;
@@ -645,7 +656,7 @@
   <header class="vs-header">
     <h1 class="vs-title">
       <span>Browser Manager</span>
-      <span class="vs-title-meta">v0.1.0</span>
+      <span class="vs-title-meta">v__APP_VERSION__</span>
     </h1>
     <div class="flex items-center gap-2 flex-wrap justify-end">
       <button onclick="toggleLogs()" id="btn-logs" class="vs-btn vs-btn--ghost">
@@ -690,6 +701,10 @@
       <p class="vs-empty-hint">点击右上角「创建浏览器」开始</p>
     </div>
   </main>
+
+  <footer class="vs-footer">
+    <span class="vs-footer__version">Version v__APP_VERSION__</span>
+  </footer>
 
   <!-- Group Manager Modal -->
   <div id="group-modal" class="hidden fixed inset-0 z-50 modal-mask flex items-center justify-center">
