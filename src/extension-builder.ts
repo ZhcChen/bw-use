@@ -274,16 +274,19 @@ export async function buildExtension(
   const credentials = ${JSON.stringify(proxy ? {
     username: proxy.username,
     password: proxy.password,
+    host: proxy.host,
+    port: proxy.port,
   } : null)};
+  const MAX_PROXY_AUTH_ATTEMPTS = 5;
 
   if (!credentials || (!credentials.username && !credentials.password)) {
     return;
   }
 
-  const seenRequests = new Set();
+  const attemptCounts = new Map();
 
   function clearRequest(details) {
-    seenRequests.delete(details.requestId);
+    attemptCounts.delete(details.requestId);
   }
 
   chrome.webRequest.onAuthRequired.addListener(
@@ -293,12 +296,25 @@ export async function buildExtension(
         return;
       }
 
-      if (seenRequests.has(details.requestId)) {
+      if (
+        details.challenger &&
+        (
+          details.challenger.host !== credentials.host ||
+          Number(details.challenger.port) !== Number(credentials.port)
+        )
+      ) {
         callback({});
         return;
       }
 
-      seenRequests.add(details.requestId);
+      const nextAttempt = (attemptCounts.get(details.requestId) || 0) + 1;
+      attemptCounts.set(details.requestId, nextAttempt);
+
+      if (nextAttempt > MAX_PROXY_AUTH_ATTEMPTS) {
+        callback({ cancel: true });
+        return;
+      }
+
       callback({
         authCredentials: {
           username: credentials.username,
@@ -312,6 +328,7 @@ export async function buildExtension(
 
   chrome.webRequest.onCompleted.addListener(clearRequest, { urls: ['<all_urls>'] });
   chrome.webRequest.onErrorOccurred.addListener(clearRequest, { urls: ['<all_urls>'] });
+  chrome.webRequest.onBeforeRedirect.addListener(clearRequest, { urls: ['<all_urls>'] });
 })();
 `;
 

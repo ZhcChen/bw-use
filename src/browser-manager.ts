@@ -99,7 +99,7 @@ export async function launchBrowser(id: string): Promise<BrowserInstance> {
 
   log("info", "launch", `Chrome args`, args.join(" "));
 
-  if (process.platform === "darwin") {
+  if (process.platform === "darwin" && browser.enableCustomIcon) {
     const appPath = await buildAppBundle(profileDir, browser.name, id, args);
     await openBrowserApp(appPath);
     const pid = await waitForBrowserStart(id);
@@ -161,7 +161,7 @@ export async function closeBrowser(id: string): Promise<BrowserInstance> {
 
   let stopped = false;
 
-  if (process.platform === "darwin" && appPath) {
+  if (process.platform === "darwin" && browser.enableCustomIcon && appPath) {
     await requestMacOSAppQuit(id);
     stopped = await waitForBrowserExit(id, BROWSER_STOP_TIMEOUT_MS);
   }

@@ -1,5 +1,5 @@
 import { join } from "path";
-import { mkdir, writeFile, chmod } from "fs/promises";
+import { mkdir, writeFile, chmod, readFile, access } from "fs/promises";
 import { log } from "./logger";
 
 const CHROME_PATH =
@@ -8,13 +8,13 @@ const CHROME_PATH =
 /**
  * Generate a .app wrapper bundle for a browser instance.
  * Structure:
- *   BrowserName.app/
+ *   Browser.app/
  *     Contents/
  *       Info.plist
  *       MacOS/
  *         launch       (shell script)
  *       Resources/
- *         app.icns     (icon - TODO: generate with text overlay)
+ *         app.icns     (current logo + short id footer)
  */
 export async function buildAppBundle(
   profileDir: string,
@@ -27,6 +27,8 @@ export async function buildAppBundle(
   const contentsDir = join(appDir, "Contents");
   const macosDir = join(contentsDir, "MacOS");
   const resourcesDir = join(contentsDir, "Resources");
+  const iconLabelPath = join(resourcesDir, ".icon-label");
+  const iconPath = join(resourcesDir, "app.icns");
 
   await mkdir(macosDir, { recursive: true });
   await mkdir(resourcesDir, { recursive: true });
@@ -65,34 +67,40 @@ exec '${CHROME_PATH.replace(/'/g, "'\\''")}' \\
     ${escapedArgs}
 `;
 
-  await writeFile(join(contentsDir, "Info.plist"), plist);
-  await writeFile(join(macosDir, "launch"), launchScript);
+  await writeFileIfChanged(join(contentsDir, "Info.plist"), plist);
+  await writeFileIfChanged(join(macosDir, "launch"), launchScript);
   await chmod(join(macosDir, "launch"), 0o755);
 
-  // Generate icon with text overlay
-  await generateIcon(resourcesDir, safeName);
+  // Icon generation is expensive on macOS. Reuse the existing icon unless
+  // the visible short id actually changed or the icon is missing.
+  const iconLabel = getShortIconId(id);
+  const previousIconLabel = await readOptionalText(iconLabelPath);
+  const shouldRegenerateIcon =
+    !(await fileExists(iconPath)) || previousIconLabel !== iconLabel;
+  if (shouldRegenerateIcon) {
+    await generateIcon(resourcesDir, iconLabel);
+    await writeFile(iconLabelPath, iconLabel, "utf-8");
+  }
 
   log("info", "app-bundle", `Built ${safeName}.app`, `path=${appDir}`);
   return appDir;
 }
 
 /**
- * Generate an .icns icon with the browser name overlaid.
+ * Generate an .icns icon using the current app logo with a short browser id
+ * shown in the footer.
  * Uses macOS sips + iconutil via a temporary iconset.
  * Falls back to copying Chrome's icon if generation fails.
  */
-async function generateIcon(resourcesDir: string, name: string) {
+async function generateIcon(resourcesDir: string, shortId: string) {
   const iconsetDir = join(resourcesDir, "app.iconset");
   await mkdir(iconsetDir, { recursive: true });
-
-  // Label text: first 2 chars of name
-  const label = name.slice(0, 2);
 
   // Generate icon PNGs using built-in macOS tools
   const sizes = [16, 32, 64, 128, 256, 512];
 
   for (const size of sizes) {
-    const svg = generateIconSvg(size, label);
+    const svg = generateIconSvg(size, shortId);
     const pngPath = join(iconsetDir, `icon_${size}x${size}.png`);
     const png2xPath = join(iconsetDir, `icon_${size}x${size}@2x.png`);
 
@@ -129,10 +137,10 @@ async function generateIcon(resourcesDir: string, name: string) {
     const code = await proc.exited;
     if (code !== 0) {
       log("warn", "app-bundle", "iconutil failed, using fallback icon");
-      await generateFallbackIcon(resourcesDir, label);
+      await generateFallbackIcon(resourcesDir, shortId);
     }
   } catch {
-    await generateFallbackIcon(resourcesDir, label);
+    await generateFallbackIcon(resourcesDir, shortId);
   }
 
   // Cleanup
@@ -141,21 +149,31 @@ async function generateIcon(resourcesDir: string, name: string) {
   await rm(join(resourcesDir, "_tmp.svg"), { force: true }).catch(() => {});
 }
 
-function generateIconSvg(size: number, label: string): string {
-  const fontSize = Math.round(size * 0.35);
-  const badgeFontSize = Math.round(size * 0.22);
-  const padding = Math.round(size * 0.08);
-  const radius = Math.round(size * 0.18);
+function generateIconSvg(size: number, shortId: string): string {
+  const baseSize = 64;
+  const idFontSize = 8.5;
+  const footerHeight = 12;
+  const footerY = 46;
+  const footerX = 8;
+  const footerWidth = baseSize - footerX * 2;
+  const footerRadius = 4.5;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" rx="${radius}" fill="#1e293b"/>
-  <rect x="${padding}" y="${padding}" width="${size - padding * 2}" height="${size * 0.3}" rx="${Math.round(radius * 0.6)}" fill="#3b82f6"/>
-  <circle cx="${padding + size * 0.08}" cy="${padding + size * 0.15}" r="${size * 0.03}" fill="#1e293b"/>
-  <circle cx="${padding + size * 0.16}" cy="${padding + size * 0.15}" r="${size * 0.03}" fill="#1e293b"/>
-  <circle cx="${padding + size * 0.24}" cy="${padding + size * 0.15}" r="${size * 0.03}" fill="#1e293b"/>
-  <text x="${size / 2}" y="${size * 0.7}" font-family="Helvetica Neue, Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="#60a5fa" text-anchor="middle" dominant-baseline="middle">${escXml(label)}</text>
-  <rect x="${size * 0.55}" y="${padding * 0.5}" width="${size * 0.42}" height="${badgeFontSize + padding}" rx="${(badgeFontSize + padding) / 2}" fill="#ef4444"/>
-  <text x="${size * 0.76}" y="${padding * 0.5 + (badgeFontSize + padding) / 2}" font-family="Helvetica Neue, Arial, sans-serif" font-size="${badgeFontSize * 0.7}" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central">${escXml(label)}</text>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${baseSize} ${baseSize}">
+  <g>
+    <rect x="4" y="8" width="56" height="48" rx="6" fill="#1e293b" stroke="#3b82f6" stroke-width="3"/>
+    <rect x="4" y="8" width="56" height="14" rx="6" fill="#3b82f6"/>
+    <rect x="4" y="16" width="56" height="6" fill="#3b82f6"/>
+    <circle cx="14" cy="15" r="2.5" fill="#1e293b"/>
+    <circle cx="22" cy="15" r="2.5" fill="#1e293b"/>
+    <circle cx="30" cy="15" r="2.5" fill="#1e293b"/>
+    <circle cx="32" cy="40" r="10" fill="none" stroke="#60a5fa" stroke-width="2"/>
+    <circle cx="32" cy="40" r="6" fill="none" stroke="#60a5fa" stroke-width="1.5"/>
+    <circle cx="32" cy="40" r="2" fill="#60a5fa"/>
+    <path d="M32 28 Q38 34 32 40 Q26 34 32 28Z" fill="none" stroke="#60a5fa" stroke-width="1.2"/>
+    <path d="M32 40 Q38 46 32 52 Q26 46 32 40Z" fill="none" stroke="#60a5fa" stroke-width="1.2"/>
+  </g>
+  <rect x="${footerX}" y="${footerY}" width="${footerWidth}" height="${footerHeight}" rx="${footerRadius}" fill="#020617" opacity="0.94"/>
+  <text x="32" y="${footerY + footerHeight / 2 + 0.8}" font-family="SF Mono, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace" font-size="${idFontSize}" font-weight="700" letter-spacing="0.6" fill="#f8fafc" text-anchor="middle" dominant-baseline="middle">${escXml(shortId)}</text>
 </svg>`;
 }
 
@@ -195,4 +213,34 @@ async function generateFallbackIcon(resourcesDir: string, label: string) {
 
 export function getBundleId(id: string): string {
   return `com.bw-use.browser.${id}`;
+}
+
+async function writeFileIfChanged(filePath: string, content: string) {
+  const previous = await readOptionalText(filePath);
+  if (previous === content) {
+    return;
+  }
+  await writeFile(filePath, content);
+}
+
+async function readOptionalText(filePath: string) {
+  try {
+    return await readFile(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+async function fileExists(filePath: string) {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getShortIconId(id: string) {
+  const normalized = id.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  return (normalized || "BROWSER").slice(0, 4);
 }
