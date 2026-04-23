@@ -3,14 +3,13 @@ import { rm, mkdir, readdir } from "fs/promises";
 import { join } from "path";
 import { getBrowser, updateBrowserStatus, removeBrowser, getProfileDir, type BrowserInstance } from "./store";
 import { buildExtension } from "./extension-builder";
-import { buildAppBundle, getBundleId } from "./app-builder";
+import { getBundleId } from "./app-builder";
 import { cleanupMacOS, cleanupMacOSAfterClose } from "./macos-cleanup";
 import { log } from "./logger";
 import { ensureProxyBridge, stopProxyBridge } from "./proxy-bridge";
 import { formatProxyServer, hasProxyCredentials, summarizeProxy } from "./proxy";
 
 const DEFAULT_CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const BROWSER_START_TIMEOUT_MS = 10_000;
 const BROWSER_STOP_TIMEOUT_MS = 4_000;
 const BROWSER_POLL_INTERVAL_MS = 250;
 
@@ -100,21 +99,6 @@ export async function launchBrowser(id: string): Promise<BrowserInstance> {
 
   log("info", "launch", `Chrome args`, args.join(" "));
 
-  if (process.platform === "darwin" && browser.enableCustomIcon) {
-    const appPath = await buildAppBundle(profileDir, browser.name, id, args);
-    await openBrowserApp(appPath);
-    const pid = await waitForBrowserStart(id);
-    if (!pid) {
-      throw new Error(`Browser launch timed out: ${browser.name}`);
-    }
-
-    log("info", "launch", "Browser app launched via LaunchServices", `id=${id} pid=${pid} app=${appPath}`);
-    runningBrowsers.set(id, pid);
-    updateBrowserStatus(id, "running", pid);
-    startBrowserExitMonitor(id);
-    return { ...browser, status: "running", pid };
-  }
-
   const proc = spawn([getChromePath(), ...args], {
     stdout: "pipe",
     stderr: "pipe",
@@ -162,11 +146,6 @@ export async function closeBrowser(id: string): Promise<BrowserInstance> {
   const appPath = process.platform === "darwin" ? await findAppPath(profileDir) : null;
 
   let stopped = false;
-
-  if (process.platform === "darwin" && browser.enableCustomIcon && appPath) {
-    await requestMacOSAppQuit(id);
-    stopped = await waitForBrowserExit(id, BROWSER_STOP_TIMEOUT_MS);
-  }
 
   if (!stopped) {
     await killProcessesByProfileId(id);
@@ -290,43 +269,6 @@ async function readStream(stream: ReadableStream<Uint8Array> | null): Promise<st
   return new TextDecoder().decode(Buffer.concat(chunks)).slice(0, MAX);
 }
 
-async function openBrowserApp(appPath: string) {
-  const proc = spawn([getOpenBin(), "-a", appPath], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [exitCode, stderr] = await Promise.all([
-    proc.exited,
-    readStream(proc.stderr as ReadableStream<Uint8Array> | null),
-  ]);
-
-  if (exitCode !== 0) {
-    throw new Error(stderr.trim() || `open exited with code ${exitCode}`);
-  }
-}
-
-async function requestMacOSAppQuit(id: string) {
-  try {
-    const proc = spawn(
-      [getOsaScriptBin(), "-e", `tell application id "${getBundleId(id)}" to quit`],
-      { stdout: "ignore", stderr: "pipe" },
-    );
-    const [exitCode, stderr] = await Promise.all([
-      proc.exited,
-      readStream(proc.stderr as ReadableStream<Uint8Array> | null),
-    ]);
-
-    if (exitCode !== 0) {
-      log("warn", "close", "Graceful app quit failed", stderr.trim() || `id=${id}`);
-      return;
-    }
-
-    log("info", "close", "Requested graceful app quit", `id=${id}`);
-  } catch (error: any) {
-    log("warn", "close", "Failed to request graceful app quit", error?.message || String(error));
-  }
-}
-
 async function findRunningBrowserPidByProfileId(id: string): Promise<number | null> {
   const processMatchPattern = getBrowserProcessMatchPattern(id);
   try {
@@ -365,32 +307,12 @@ function getChromePath() {
   return process.env.CHROME_PATH || DEFAULT_CHROME_PATH;
 }
 
-function getOpenBin() {
-  return process.env.BW_USE_OPEN_BIN || "open";
-}
-
-function getOsaScriptBin() {
-  return process.env.BW_USE_OSASCRIPT_BIN || "osascript";
-}
-
 function getPgrepBin() {
   return process.env.BW_USE_PGREP_BIN || "pgrep";
 }
 
 function getPkillBin() {
   return process.env.BW_USE_PKILL_BIN || "pkill";
-}
-
-async function waitForBrowserStart(id: string, timeoutMs = BROWSER_START_TIMEOUT_MS): Promise<number | null> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const pid = await findRunningBrowserPidByProfileId(id);
-    if (pid) {
-      return pid;
-    }
-    await Bun.sleep(BROWSER_POLL_INTERVAL_MS);
-  }
-  return null;
 }
 
 async function waitForBrowserExit(id: string, timeoutMs = BROWSER_STOP_TIMEOUT_MS): Promise<boolean> {

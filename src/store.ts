@@ -36,7 +36,6 @@ export interface BrowserInstance {
   groupId: string | null;
   fingerprint: Fingerprint;
   proxy: ProxyConfig | null;
-  enableCustomIcon: boolean;
   disableCors: boolean;
   language: string;
   status: "running" | "stopped";
@@ -154,7 +153,6 @@ function rowToInstance(row: any): BrowserInstance {
     groupId: row.group_id || null,
     fingerprint: JSON.parse(row.fingerprint),
     proxy,
-    enableCustomIcon: !!row.enable_custom_icon,
     disableCors: !!row.disable_cors,
     language: row.language,
     status: row.status,
@@ -175,14 +173,13 @@ export function getBrowser(id: string): BrowserInstance | null {
 
 export function insertBrowser(b: BrowserInstance) {
   db.run(
-    "INSERT INTO browsers (id, name, group_id, fingerprint, proxy, enable_custom_icon, disable_cors, language, status, pid, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO browsers (id, name, group_id, fingerprint, proxy, disable_cors, language, status, pid, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     [
       b.id,
       b.name,
       b.groupId,
       JSON.stringify(b.fingerprint),
       b.proxy ? JSON.stringify(b.proxy) : null,
-      b.enableCustomIcon ? 1 : 0,
       b.disableCors ? 1 : 0,
       b.language,
       b.status,
@@ -194,13 +191,12 @@ export function insertBrowser(b: BrowserInstance) {
 
 export function updateBrowser(instance: BrowserInstance) {
   db.run(
-    "UPDATE browsers SET name = ?, group_id = ?, fingerprint = ?, proxy = ?, enable_custom_icon = ?, disable_cors = ?, language = ? WHERE id = ?",
+    "UPDATE browsers SET name = ?, group_id = ?, fingerprint = ?, proxy = ?, disable_cors = ?, language = ? WHERE id = ?",
     [
       instance.name,
       instance.groupId,
       JSON.stringify(instance.fingerprint),
       instance.proxy ? JSON.stringify(instance.proxy) : null,
-      instance.enableCustomIcon ? 1 : 0,
       instance.disableCors ? 1 : 0,
       instance.language,
       instance.id,

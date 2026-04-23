@@ -977,17 +977,6 @@
           </label>
         </div>
 
-        <div class="flex items-center justify-between pt-1">
-          <div>
-            <div class="text-xs" style="color: var(--vs-fg);">独立图标（默认关闭）</div>
-            <div class="text-xs" style="color: var(--vs-fg-muted);">仅 macOS 生效；启用后使用当前 logo，并在底部覆盖短 ID，启动会稍慢。</div>
-          </div>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input id="f-custom-icon" type="checkbox" class="sr-only peer">
-            <span class="vs-toggle"></span>
-          </label>
-        </div>
-
         <div class="vs-divider"></div>
 
         <!-- Fingerprint Section -->
@@ -1975,7 +1964,6 @@ function render(browsers) {
         <div><span class="vs-k">tz</span><span class="vs-v">${esc(b.fingerprint.timezone || '-')}</span></div>
         <div><span class="vs-k">webrtc</span><span class="vs-v">${webrtcLabel}</span></div>
         <div><span class="vs-k">proxy</span><span class="vs-v" style="color: ${b.proxy ? 'var(--vs-blue)' : 'var(--vs-fg-dim)'};">${esc(proxyLabel)}</span></div>
-        <div><span class="vs-k">dock</span><span class="vs-v" style="color: ${b.enableCustomIcon ? 'var(--vs-blue)' : 'var(--vs-fg-dim)'};">${b.enableCustomIcon ? 'custom' : 'default'}</span></div>
         <div><span class="vs-k">cors</span><span class="vs-v" style="color: ${b.disableCors ? 'var(--vs-yellow)' : 'var(--vs-fg-dim)'};">${b.disableCors ? 'disabled' : 'on'}</span></div>
         <div><span class="vs-k">created</span><span class="vs-v">${esc(createdLabel)}</span></div>
       </div>
@@ -2204,7 +2192,6 @@ function openCreateModal() {
   document.getElementById('f-name').value = '';
   document.getElementById('f-group').value = '';
   document.getElementById('f-language').value = 'zh-CN';
-  document.getElementById('f-custom-icon').checked = false;
   document.getElementById('f-cors').checked = false;
   createProxyController.reset();
   createProxyTestController.reset();
@@ -2224,7 +2211,6 @@ function openEditModal(id) {
   document.getElementById('f-name').value = browser.name || '';
   document.getElementById('f-group').value = browser.groupId || '';
   document.getElementById('f-language').value = browser.language || 'zh-CN';
-  document.getElementById('f-custom-icon').checked = !!browser.enableCustomIcon;
   document.getElementById('f-cors').checked = !!browser.disableCors;
   createProxyController.setValue(browser.proxy);
   createProxyTestController.reset();
@@ -2256,7 +2242,6 @@ function collectBrowserFormData() {
     name: document.getElementById('f-name').value || undefined,
     language: document.getElementById('f-language').value,
     proxy: createProxyController.getValue(),
-    enableCustomIcon: document.getElementById('f-custom-icon').checked,
     disableCors: document.getElementById('f-cors').checked,
     groupId: document.getElementById('f-group').value || null,
     fingerprint: {

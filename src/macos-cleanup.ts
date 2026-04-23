@@ -12,8 +12,8 @@ const LSREGISTER =
  */
 export async function cleanupMacOS(appPath: string, bundleId: string) {
   // 1. Unpin from Dock
-  const removedPersistent = await removeDockEntries("persistent-apps", appPath);
-  const removedRecent = await removeDockEntries("recent-apps", appPath);
+  const removedPersistent = await removeDockEntries("persistent-apps", appPath, bundleId);
+  const removedRecent = await removeDockEntries("recent-apps", appPath, bundleId);
   if (removedPersistent || removedRecent) {
     await restartDock();
   }
@@ -22,16 +22,7 @@ export async function cleanupMacOS(appPath: string, bundleId: string) {
   await removeSavedApplicationState(bundleId);
 
   // 3. Unregister from LaunchServices
-  try {
-    const proc = Bun.spawn(
-      [LSREGISTER, "-u", appPath],
-      { stdout: "ignore", stderr: "ignore" }
-    );
-    await proc.exited;
-    log("info", "cleanup", "Unregistered from LaunchServices", appPath);
-  } catch (err: any) {
-    log("warn", "cleanup", "Failed to unregister from LaunchServices", err.message);
-  }
+  await unregisterFromLaunchServices(appPath);
 }
 
 /**
@@ -39,10 +30,12 @@ export async function cleanupMacOS(appPath: string, bundleId: string) {
  * remain in "recent apps" and produce duplicate Dock icons on next launch.
  */
 export async function cleanupMacOSAfterClose(appPath: string, bundleId: string) {
-  const removedRecent = await removeDockEntries("recent-apps", appPath);
-  if (removedRecent) {
+  const removedPersistent = await removeDockEntries("persistent-apps", appPath, bundleId);
+  const removedRecent = await removeDockEntries("recent-apps", appPath, bundleId);
+  if (removedPersistent || removedRecent) {
     await restartDock();
   }
+  await unregisterFromLaunchServices(appPath);
   await removeSavedApplicationState(bundleId);
 }
 
@@ -54,7 +47,11 @@ async function removeSavedApplicationState(bundleId: string) {
   } catch {}
 }
 
-async function removeDockEntries(section: "persistent-apps" | "recent-apps", appPath: string) {
+async function removeDockEntries(
+  section: "persistent-apps" | "recent-apps",
+  appPath: string,
+  bundleId: string,
+) {
   try {
     const plistPath = join(process.env.HOME || homedir(), "Library", "Preferences", "com.apple.dock.plist");
     const proc = Bun.spawn(
@@ -66,20 +63,10 @@ async function removeDockEntries(section: "persistent-apps" | "recent-apps", app
 
     let removed = false;
     for (let i = 200; i >= 0; i--) {
-      const checkProc = Bun.spawn(
-        [
-          PLIST_BUDDY,
-          "-c",
-          `Print ${section}:${i}:tile-data:file-data:_CFURLString`,
-          plistPath,
-        ],
-        { stdout: "pipe", stderr: "pipe" }
-      );
-      const url = (await new Response(checkProc.stdout).text()).trim();
-      const code = await checkProc.exited;
-      if (code !== 0) continue;
+      const url = await readDockEntryValue(plistPath, `${section}:${i}:tile-data:file-data:_CFURLString`);
+      const bundleIdentifier = await readDockEntryValue(plistPath, `${section}:${i}:tile-data:bundle-identifier`);
 
-      if (matchesDockAppPath(url, appPath)) {
+      if (shouldRemoveDockEntry({ url, bundleIdentifier }, appPath, bundleId)) {
         const delProc = Bun.spawn(
           [
             PLIST_BUDDY,
@@ -104,6 +91,38 @@ async function removeDockEntries(section: "persistent-apps" | "recent-apps", app
   }
 }
 
+async function readDockEntryValue(plistPath: string, keyPath: string) {
+  const proc = Bun.spawn(
+    [
+      PLIST_BUDDY,
+      "-c",
+      `Print ${keyPath}`,
+      plistPath,
+    ],
+    { stdout: "pipe", stderr: "ignore" },
+  );
+  const value = (await new Response(proc.stdout).text()).trim();
+  const code = await proc.exited;
+  if (code !== 0 || !value) {
+    return null;
+  }
+  return value;
+}
+
+export function shouldRemoveDockEntry(
+  entry: { url?: string | null; bundleIdentifier?: string | null },
+  appPath: string,
+  bundleId: string,
+) {
+  if (entry.bundleIdentifier?.trim() === bundleId) {
+    return true;
+  }
+  if (!entry.url) {
+    return false;
+  }
+  return matchesDockAppPath(entry.url, appPath);
+}
+
 function matchesDockAppPath(url: string, appPath: string) {
   const normalizedAppPath = normalizeDockPath(appPath);
   const normalizedUrl = normalizeDockPath(url);
@@ -120,6 +139,19 @@ function normalizeDockPath(value: string) {
     normalized = decodeURIComponent(normalized);
   } catch {}
   return normalized.replace(/\/+$/, "");
+}
+
+async function unregisterFromLaunchServices(appPath: string) {
+  try {
+    const proc = Bun.spawn(
+      [LSREGISTER, "-u", appPath],
+      { stdout: "ignore", stderr: "ignore" }
+    );
+    await proc.exited;
+    log("info", "cleanup", "Unregistered from LaunchServices", appPath);
+  } catch (err: any) {
+    log("warn", "cleanup", "Failed to unregister from LaunchServices", err.message);
+  }
 }
 
 async function restartDock() {
