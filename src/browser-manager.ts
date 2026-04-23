@@ -3,26 +3,52 @@ import { rm, mkdir, readdir } from "fs/promises";
 import { join } from "path";
 import { getBrowser, updateBrowserStatus, removeBrowser, getProfileDir, type BrowserInstance } from "./store";
 import { buildExtension } from "./extension-builder";
-import { getBundleId } from "./app-builder";
-import { cleanupMacOS } from "./macos-cleanup";
+import { buildAppBundle, getBundleId } from "./app-builder";
+import { cleanupMacOS, cleanupMacOSAfterClose } from "./macos-cleanup";
 import { log } from "./logger";
 import { formatProxyServer, summarizeProxy } from "./proxy";
 
 const CHROME_PATH =
   process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const OPEN_BIN = process.env.BW_USE_OPEN_BIN || "open";
+const OSASCRIPT_BIN = process.env.BW_USE_OSASCRIPT_BIN || "osascript";
+const PGREP_BIN = process.env.BW_USE_PGREP_BIN || "pgrep";
+const PKILL_BIN = process.env.BW_USE_PKILL_BIN || "pkill";
+const BROWSER_START_TIMEOUT_MS = 10_000;
+const BROWSER_STOP_TIMEOUT_MS = 4_000;
+const BROWSER_POLL_INTERVAL_MS = 250;
 
 // Track running processes in memory (pid -> id)
 const runningBrowsers = new Map<string, number>();
+const browserExitMonitors = new Map<string, Promise<void>>();
 
 export async function launchBrowser(id: string): Promise<BrowserInstance> {
   const browser = getBrowser(id);
   if (!browser) throw new Error("Browser not found");
-  if (browser.status === "running") throw new Error("Browser already running");
+  if (browser.status === "running") {
+    const existingPid = await findRunningBrowserPidByProfileId(id);
+    if (existingPid) {
+      throw new Error("Browser already running");
+    }
+
+    log("warn", "launch", "Browser status was running but no process was found, resetting state", `id=${id}`);
+    updateBrowserStatus(id, "stopped", null);
+    browser.status = "stopped";
+  }
 
   const profileDir = getProfileDir(id);
   await mkdir(profileDir, { recursive: true });
 
   log("info", "launch", `Starting browser "${browser.name}"`, `id=${id}`);
+
+  const existingPid = await findRunningBrowserPidByProfileId(id);
+  if (existingPid) {
+    log("info", "launch", "Detected existing browser process, reusing", `id=${id} pid=${existingPid}`);
+    runningBrowsers.set(id, existingPid);
+    updateBrowserStatus(id, "running", existingPid);
+    startBrowserExitMonitor(id);
+    return { ...browser, status: "running", pid: existingPid };
+  }
 
   // Build fingerprint extension
   const extDir = await buildExtension(profileDir, browser.fingerprint, browser.name, browser.proxy);
@@ -73,6 +99,21 @@ export async function launchBrowser(id: string): Promise<BrowserInstance> {
 
   log("info", "launch", `Chrome args`, args.join(" "));
 
+  if (process.platform === "darwin") {
+    const appPath = await buildAppBundle(profileDir, browser.name, id, args);
+    await openBrowserApp(appPath);
+    const pid = await waitForBrowserStart(id);
+    if (!pid) {
+      throw new Error(`Browser launch timed out: ${browser.name}`);
+    }
+
+    log("info", "launch", "Browser app launched via LaunchServices", `id=${id} pid=${pid} app=${appPath}`);
+    runningBrowsers.set(id, pid);
+    updateBrowserStatus(id, "running", pid);
+    startBrowserExitMonitor(id);
+    return { ...browser, status: "running", pid };
+  }
+
   const proc = spawn([CHROME_PATH, ...args], {
     stdout: "pipe",
     stderr: "pipe",
@@ -101,12 +142,42 @@ export async function launchBrowser(id: string): Promise<BrowserInstance> {
 export async function closeBrowser(id: string): Promise<BrowserInstance> {
   const browser = getBrowser(id);
   if (!browser) throw new Error("Browser not found");
-  if (browser.status !== "running") throw new Error("Browser not running");
+  if (browser.status !== "running") {
+    const existingPid = await findRunningBrowserPidByProfileId(id);
+    if (!existingPid) {
+      throw new Error("Browser not running");
+    }
+
+    log("warn", "close", "Browser status was stopped but process still exists, closing actual process", `id=${id} pid=${existingPid}`);
+    updateBrowserStatus(id, "running", existingPid);
+    browser.status = "running";
+    browser.pid = existingPid;
+  }
 
   log("info", "close", `Closing browser "${browser.name}"`, `id=${id}`);
 
-  // Kill all processes associated with this browser instance by profile id
-  await killProcessesByProfileId(id);
+  const profileDir = getProfileDir(id);
+  const appPath = process.platform === "darwin" ? await findAppPath(profileDir) : null;
+
+  let stopped = false;
+
+  if (process.platform === "darwin" && appPath) {
+    await requestMacOSAppQuit(id);
+    stopped = await waitForBrowserExit(id, BROWSER_STOP_TIMEOUT_MS);
+  }
+
+  if (!stopped) {
+    await killProcessesByProfileId(id);
+    stopped = await waitForBrowserExit(id, 2_000);
+  }
+
+  if (!stopped) {
+    throw new Error(`Failed to stop browser process: ${browser.name}`);
+  }
+
+  if (process.platform === "darwin" && appPath) {
+    await cleanupMacOSAfterClose(appPath, getBundleId(id));
+  }
 
   runningBrowsers.delete(id);
   updateBrowserStatus(id, "stopped", null);
@@ -163,11 +234,12 @@ export async function deleteBrowser(id: string): Promise<void> {
  * Uses SIGTERM first, then SIGKILL.
  */
 async function killProcessesByProfileId(id: string) {
+  const processMatchToken = getBrowserProcessMatchToken(id);
   // pkill -f matches against the full command line of each process
   // The profile id is unique enough and appears in --user-data-dir of all Chrome processes
   try {
     // Graceful first
-    const p1 = spawn(["pkill", "-f", id], { stdout: "ignore", stderr: "ignore" });
+    const p1 = spawn([PKILL_BIN, "-f", processMatchToken], { stdout: "ignore", stderr: "ignore" });
     await p1.exited;
     log("info", "kill", `Sent SIGTERM to processes matching "${id}"`);
   } catch {}
@@ -176,7 +248,7 @@ async function killProcessesByProfileId(id: string) {
 
   try {
     // Force kill survivors
-    const p2 = spawn(["pkill", "-9", "-f", id], { stdout: "ignore", stderr: "ignore" });
+    const p2 = spawn([PKILL_BIN, "-9", "-f", processMatchToken], { stdout: "ignore", stderr: "ignore" });
     await p2.exited;
   } catch {}
 
@@ -211,4 +283,121 @@ async function readStream(stream: ReadableStream<Uint8Array> | null): Promise<st
   } catch {}
   reader.releaseLock();
   return new TextDecoder().decode(Buffer.concat(chunks)).slice(0, MAX);
+}
+
+async function openBrowserApp(appPath: string) {
+  const proc = spawn([OPEN_BIN, "-a", appPath], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exitCode, stderr] = await Promise.all([
+    proc.exited,
+    readStream(proc.stderr as ReadableStream<Uint8Array> | null),
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error(stderr.trim() || `open exited with code ${exitCode}`);
+  }
+}
+
+async function requestMacOSAppQuit(id: string) {
+  try {
+    const proc = spawn(
+      [OSASCRIPT_BIN, "-e", `tell application id "${getBundleId(id)}" to quit`],
+      { stdout: "ignore", stderr: "pipe" },
+    );
+    const [exitCode, stderr] = await Promise.all([
+      proc.exited,
+      readStream(proc.stderr as ReadableStream<Uint8Array> | null),
+    ]);
+
+    if (exitCode !== 0) {
+      log("warn", "close", "Graceful app quit failed", stderr.trim() || `id=${id}`);
+      return;
+    }
+
+    log("info", "close", "Requested graceful app quit", `id=${id}`);
+  } catch (error: any) {
+    log("warn", "close", "Failed to request graceful app quit", error?.message || String(error));
+  }
+}
+
+async function findRunningBrowserPidByProfileId(id: string): Promise<number | null> {
+  const processMatchToken = getBrowserProcessMatchToken(id);
+  try {
+    const proc = spawn([PGREP_BIN, "-o", "-f", processMatchToken], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const [exitCode, stdout] = await Promise.all([
+      proc.exited,
+      readStream(proc.stdout as ReadableStream<Uint8Array> | null),
+    ]);
+    if (exitCode !== 0) {
+      return null;
+    }
+
+    const pid = Number.parseInt(stdout.trim().split(/\s+/)[0] || "", 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function getBrowserProcessMatchToken(id: string) {
+  return `--user-data-dir=${getProfileDir(id)}`;
+}
+
+async function waitForBrowserStart(id: string, timeoutMs = BROWSER_START_TIMEOUT_MS): Promise<number | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const pid = await findRunningBrowserPidByProfileId(id);
+    if (pid) {
+      return pid;
+    }
+    await Bun.sleep(BROWSER_POLL_INTERVAL_MS);
+  }
+  return null;
+}
+
+async function waitForBrowserExit(id: string, timeoutMs = BROWSER_STOP_TIMEOUT_MS): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const pid = await findRunningBrowserPidByProfileId(id);
+    if (!pid) {
+      return true;
+    }
+    await Bun.sleep(BROWSER_POLL_INTERVAL_MS);
+  }
+  return false;
+}
+
+function startBrowserExitMonitor(id: string) {
+  if (browserExitMonitors.has(id)) {
+    return;
+  }
+
+  const monitor = (async () => {
+    while (true) {
+      const pid = await findRunningBrowserPidByProfileId(id);
+      if (!pid) {
+        runningBrowsers.delete(id);
+        updateBrowserStatus(id, "stopped", null);
+        log("info", "launch", "Browser process exited", `id=${id}`);
+        return;
+      }
+
+      const currentPid = runningBrowsers.get(id);
+      if (currentPid !== pid) {
+        runningBrowsers.set(id, pid);
+        updateBrowserStatus(id, "running", pid);
+      }
+
+      await Bun.sleep(1_500);
+    }
+  })().finally(() => {
+    browserExitMonitors.delete(id);
+  });
+
+  browserExitMonitors.set(id, monitor);
 }

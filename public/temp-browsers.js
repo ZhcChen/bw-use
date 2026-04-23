@@ -89,7 +89,7 @@
     createBtn.textContent = state.creating ? "创建中..." : "创建临时浏览器";
 
     closeBtn.disabled = state.count === 0 || state.creating || state.closing;
-    closeBtn.textContent = state.closing ? "关闭中..." : "一键关闭";
+    closeBtn.textContent = state.closing ? "关闭中..." : "一键关闭临时浏览器";
 
     if (modalSubmitBtn) {
       modalSubmitBtn.disabled = state.creating || state.closing;

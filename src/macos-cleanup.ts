@@ -3,28 +3,28 @@ import { join } from "path";
 import { homedir } from "os";
 import { log } from "./logger";
 
+const PLIST_BUDDY = "/usr/libexec/PlistBuddy";
+const LSREGISTER =
+  "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+
 /**
  * Clean up all macOS residual data for a browser instance.
  */
 export async function cleanupMacOS(appPath: string, bundleId: string) {
   // 1. Unpin from Dock
-  await unpinFromDock(appPath);
+  const removedPersistent = await removeDockEntries("persistent-apps", appPath);
+  const removedRecent = await removeDockEntries("recent-apps", appPath);
+  if (removedPersistent || removedRecent) {
+    await restartDock();
+  }
 
   // 2. Remove Saved Application State
-  const savedStatePath = join(homedir(), "Library", "Saved Application State", `${bundleId}.savedState`);
-  try {
-    await rm(savedStatePath, { recursive: true, force: true });
-    log("info", "cleanup", "Removed Saved Application State", savedStatePath);
-  } catch {}
+  await removeSavedApplicationState(bundleId);
 
   // 3. Unregister from LaunchServices
   try {
     const proc = Bun.spawn(
-      [
-        "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
-        "-u",
-        appPath,
-      ],
+      [LSREGISTER, "-u", appPath],
       { stdout: "ignore", stderr: "ignore" }
     );
     await proc.exited;
@@ -35,50 +35,42 @@ export async function cleanupMacOS(appPath: string, bundleId: string) {
 }
 
 /**
- * Remove app from Dock's persistent-apps if pinned.
- * Reads com.apple.dock.plist, finds matching entry, removes it, restarts Dock.
+ * Remove runtime Dock residue after app close so managed browser apps do not
+ * remain in "recent apps" and produce duplicate Dock icons on next launch.
  */
-async function unpinFromDock(appPath: string) {
+export async function cleanupMacOSAfterClose(appPath: string, bundleId: string) {
+  const removedRecent = await removeDockEntries("recent-apps", appPath);
+  if (removedRecent) {
+    await restartDock();
+  }
+  await removeSavedApplicationState(bundleId);
+}
+
+async function removeSavedApplicationState(bundleId: string) {
+  const savedStatePath = join(homedir(), "Library", "Saved Application State", `${bundleId}.savedState`);
   try {
-    // Read current Dock plist as JSON
+    await rm(savedStatePath, { recursive: true, force: true });
+    log("info", "cleanup", "Removed Saved Application State", savedStatePath);
+  } catch {}
+}
+
+async function removeDockEntries(section: "persistent-apps" | "recent-apps", appPath: string) {
+  try {
+    const plistPath = join(process.env.HOME || homedir(), "Library", "Preferences", "com.apple.dock.plist");
     const proc = Bun.spawn(
-      ["defaults", "read", "com.apple.dock", "persistent-apps"],
+      ["defaults", "read", "com.apple.dock", section],
       { stdout: "pipe", stderr: "ignore" }
     );
-    const output = await new Response(proc.stdout).text();
+    await new Response(proc.stdout).text();
     await proc.exited;
 
-    // Check if our app path appears in the Dock config
-    if (!output.includes(appPath)) {
-      log("info", "cleanup", "App not pinned to Dock, skipping");
-      return;
-    }
-
-    // Find and remove the entry using PlistBuddy
-    // First, get count of persistent-apps
-    const countProc = Bun.spawn(
-      [
-        "/usr/libexec/PlistBuddy",
-        "-c",
-        "Print persistent-apps",
-        join(process.env.HOME || homedir(), "Library", "Preferences", "com.apple.dock.plist"),
-      ],
-      { stdout: "pipe", stderr: "ignore" }
-    );
-    const countOutput = await new Response(countProc.stdout).text();
-    await countProc.exited;
-
-    // Parse entries to find index. PlistBuddy output has Dict blocks.
-    // We look for the file-data -> _CFURLString matching our app path
-    const plistPath = join(process.env.HOME || homedir(), "Library", "Preferences", "com.apple.dock.plist");
-
-    // Try each index until we find or exhaust
-    for (let i = 100; i >= 0; i--) {
+    let removed = false;
+    for (let i = 200; i >= 0; i--) {
       const checkProc = Bun.spawn(
         [
-          "/usr/libexec/PlistBuddy",
+          PLIST_BUDDY,
           "-c",
-          `Print persistent-apps:${i}:tile-data:file-data:_CFURLString`,
+          `Print ${section}:${i}:tile-data:file-data:_CFURLString`,
           plistPath,
         ],
         { stdout: "pipe", stderr: "pipe" }
@@ -87,34 +79,58 @@ async function unpinFromDock(appPath: string) {
       const code = await checkProc.exited;
       if (code !== 0) continue;
 
-      // Match by path (Dock stores file:// URLs or plain paths)
-      if (url.includes(appPath) || url === `file://${appPath}/`) {
-        // Delete this entry
+      if (matchesDockAppPath(url, appPath)) {
         const delProc = Bun.spawn(
           [
-            "/usr/libexec/PlistBuddy",
+            PLIST_BUDDY,
             "-c",
-            `Delete persistent-apps:${i}`,
+            `Delete ${section}:${i}`,
             plistPath,
           ],
           { stdout: "ignore", stderr: "pipe" }
         );
         await delProc.exited;
-
-        // Restart Dock to apply
-        const killProc = Bun.spawn(["killall", "Dock"], {
-          stdout: "ignore",
-          stderr: "ignore",
-        });
-        await killProc.exited;
-
-        log("info", "cleanup", "Unpinned from Dock and restarted Dock", appPath);
-        return;
+        removed = true;
       }
     }
 
-    log("info", "cleanup", "App path in Dock config but entry not found by PlistBuddy");
+    if (removed) {
+      log("info", "cleanup", `Removed app from Dock ${section}`, appPath);
+    }
+    return removed;
   } catch (err: any) {
-    log("warn", "cleanup", "Failed to unpin from Dock", err.message);
+    log("warn", "cleanup", `Failed to clean Dock ${section}`, err.message);
+    return false;
+  }
+}
+
+function matchesDockAppPath(url: string, appPath: string) {
+  const normalizedAppPath = normalizeDockPath(appPath);
+  const normalizedUrl = normalizeDockPath(url);
+
+  return normalizedUrl === normalizedAppPath || normalizedUrl.includes(normalizedAppPath);
+}
+
+function normalizeDockPath(value: string) {
+  let normalized = value.trim();
+  if (normalized.startsWith("file://")) {
+    normalized = normalized.slice("file://".length);
+  }
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {}
+  return normalized.replace(/\/+$/, "");
+}
+
+async function restartDock() {
+  try {
+    const killProc = Bun.spawn(["killall", "Dock"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await killProc.exited;
+    log("info", "cleanup", "Restarted Dock");
+  } catch (err: any) {
+    log("warn", "cleanup", "Failed to restart Dock", err.message);
   }
 }

@@ -665,13 +665,16 @@
       <button onclick="openCreateModal()" class="vs-btn vs-btn--primary">
         + 创建浏览器
       </button>
+      <button id="btn-close-browsers" onclick="closeVisibleBrowsers()" class="vs-btn vs-btn--warn" disabled>
+        一键关闭
+      </button>
       <span class="vs-divider-v"></span>
       <span id="temp-browser-count" class="vs-count">临时浏览器：-- 个</span>
       <button id="btn-create-temp-browser" class="vs-btn vs-btn--ghost vs-btn--sm">
         创建临时浏览器
       </button>
       <button id="btn-close-temp-browsers" class="vs-btn vs-btn--danger vs-btn--sm" disabled>
-        一键关闭
+        一键关闭临时浏览器
       </button>
     </div>
   </header>
@@ -1093,6 +1096,7 @@ let allGroups = [];
 let lastRenderedBrowsers = [];
 let selectedBrowserIds = new Set();
 let editingBrowserId = null;
+let closingBrowsers = false;
 
 // ---- API helpers ----
 async function api(path, opts = {}) {
@@ -1427,6 +1431,7 @@ function render(browsers) {
     list.innerHTML = '';
     empty.classList.remove('hidden');
     updateSelectionToolbar();
+    updateCloseBrowsersButton();
     return;
   }
 
@@ -1483,6 +1488,7 @@ function render(browsers) {
   `;
   }).join('');
   updateSelectionToolbar();
+  updateCloseBrowsersButton();
 }
 
 function esc(s) {
@@ -1500,6 +1506,59 @@ async function launch(id) {
 async function close_(id) {
   await api(`/browsers/${id}/close`, { method: 'POST' });
   loadBrowsers();
+}
+
+function updateCloseBrowsersButton() {
+  const closeBtn = document.getElementById('btn-close-browsers');
+  if (!closeBtn) return;
+
+  const runningVisibleCount = lastRenderedBrowsers.filter(browser => browser.status === 'running').length;
+  closeBtn.disabled = closingBrowsers || runningVisibleCount === 0;
+  closeBtn.textContent = closingBrowsers ? '关闭中...' : '一键关闭';
+  closeBtn.title = runningVisibleCount > 0
+    ? `关闭当前列表中 ${runningVisibleCount} 个运行中的浏览器`
+    : '当前列表中没有运行中的浏览器';
+}
+
+async function closeVisibleBrowsers() {
+  const runningBrowsers = lastRenderedBrowsers.filter(browser => browser.status === 'running');
+  if (runningBrowsers.length === 0 || closingBrowsers) return;
+
+  const message = runningBrowsers.length === 1
+    ? '将关闭当前列表中 1 个运行中的浏览器，不会删除数据。'
+    : `将关闭当前列表中 ${runningBrowsers.length} 个运行中的浏览器，不会删除数据。`;
+  if (!window.confirm(message)) return;
+
+  let summary = '';
+  closingBrowsers = true;
+  updateCloseBrowsersButton();
+
+  try {
+    const result = await window.runBatchDelete(
+      runningBrowsers.map(browser => browser.id),
+      async (id) => {
+        await api(`/browsers/${id}/close`, { method: 'POST' });
+      },
+      5,
+    );
+
+    if (result.failedIds.length === 0) {
+      summary = `已关闭 ${result.successIds.length} 个浏览器`;
+    } else if (result.successIds.length === 0) {
+      summary = `关闭失败，${result.failedIds.length} 个浏览器未关闭`;
+    } else {
+      summary = `已关闭 ${result.successIds.length} 个浏览器，失败 ${result.failedIds.length} 个`;
+    }
+  } catch (error) {
+    summary = error?.message || '关闭浏览器失败';
+  } finally {
+    closingBrowsers = false;
+    await loadBrowsers();
+  }
+
+  if (summary) {
+    alert(summary);
+  }
 }
 
 function pruneSelection() {

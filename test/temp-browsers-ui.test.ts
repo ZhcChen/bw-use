@@ -52,7 +52,7 @@ function createMockDom() {
   const elements = {
     "temp-browser-count": createMockElement(),
     "btn-create-temp-browser": createMockElement("创建临时浏览器"),
-    "btn-close-temp-browsers": createMockElement("一键关闭"),
+    "btn-close-temp-browsers": createMockElement("一键关闭临时浏览器"),
     "temp-browser-toast": createMockElement(),
     "temp-browser-toast-spinner": createMockElement(),
     "temp-browser-toast-message": createMockElement(),
@@ -177,7 +177,7 @@ test("已安装 Chrome 时点击创建按钮会 POST 创建并刷新计数", asy
   expect(elements["btn-close-temp-browsers"].disabled).toBe(false);
 });
 
-test("一键关闭调用 DELETE 并显示成功文案", async () => {
+test("一键关闭临时浏览器调用 DELETE 并显示成功文案", async () => {
   const calls: string[] = [];
   const { elements, document } = createMockDom();
 

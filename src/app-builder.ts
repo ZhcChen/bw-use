@@ -23,7 +23,7 @@ export async function buildAppBundle(
   chromeArgs: string[]
 ): Promise<string> {
   const safeName = name.replace(/[^\w\s\u4e00-\u9fff-]/g, "").trim() || "Browser";
-  const appDir = join(profileDir, `${safeName}.app`);
+  const appDir = join(profileDir, "Browser.app");
   const contentsDir = join(appDir, "Contents");
   const macosDir = join(contentsDir, "MacOS");
   const resourcesDir = join(contentsDir, "Resources");
