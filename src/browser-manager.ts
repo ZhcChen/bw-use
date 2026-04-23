@@ -4,7 +4,7 @@ import { join } from "path";
 import { getBrowser, updateBrowserStatus, removeBrowser, getProfileDir, type BrowserInstance } from "./store";
 import { buildExtension } from "./extension-builder";
 import { getBundleId } from "./app-builder";
-import { cleanupMacOS, cleanupMacOSAfterClose } from "./macos-cleanup";
+import { cleanupMacOS, cleanupMacOSAfterClose, scheduleMacOSCleanupRetries } from "./macos-cleanup";
 import { log } from "./logger";
 import { ensureProxyBridge, stopProxyBridge } from "./proxy-bridge";
 import { formatProxyServer, hasProxyCredentials, summarizeProxy } from "./proxy";
@@ -157,7 +157,9 @@ export async function closeBrowser(id: string): Promise<BrowserInstance> {
   }
 
   if (process.platform === "darwin" && appPath) {
-    await cleanupMacOSAfterClose(appPath, getBundleId(id));
+    const bundleId = getBundleId(id);
+    await cleanupMacOSAfterClose(appPath, bundleId);
+    scheduleMacOSCleanupRetries(appPath, bundleId);
   }
 
   await stopProxyBridge(getProxyBridgeKey(id));
@@ -185,7 +187,9 @@ export async function deleteBrowser(id: string): Promise<void> {
   if (process.platform === "darwin") {
     const appPath = await findAppPath(profileDir);
     if (appPath) {
-      await cleanupMacOS(appPath, getBundleId(id));
+      const bundleId = getBundleId(id);
+      await cleanupMacOS(appPath, bundleId);
+      scheduleMacOSCleanupRetries(appPath, bundleId);
     }
   }
 

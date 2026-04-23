@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { shouldRemoveDockEntry } from "../src/macos-cleanup";
+import { parseCleanupRetryDelays, shouldRemoveDockEntry } from "../src/macos-cleanup";
 
 test("shouldRemoveDockEntry 在 bundle identifier 命中时返回 true", () => {
   expect(
@@ -36,4 +36,13 @@ test("shouldRemoveDockEntry 在 bundle identifier 和 appPath 都不命中时返
       "com.bw-use.browser.abc",
     ),
   ).toBe(false);
+});
+
+test("parseCleanupRetryDelays 解析逗号分隔毫秒并过滤非法值", () => {
+  expect(parseCleanupRetryDelays("0, 1200, -1, abc, 4500")).toEqual([0, 1200, 4500]);
+});
+
+test("parseCleanupRetryDelays 在空输入时返回空数组", () => {
+  expect(parseCleanupRetryDelays("   ")).toEqual([]);
+  expect(parseCleanupRetryDelays(undefined)).toEqual([]);
 });

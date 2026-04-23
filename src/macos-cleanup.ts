@@ -6,6 +6,8 @@ import { log } from "./logger";
 const PLIST_BUDDY = "/usr/libexec/PlistBuddy";
 const LSREGISTER =
   "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+const DEFAULT_CLEANUP_RETRY_DELAYS_MS = [1_000, 3_000, 8_000];
+const scheduledCleanupJobs = new Map<string, Promise<void>>();
 
 /**
  * Clean up all macOS residual data for a browser instance.
@@ -37,6 +39,44 @@ export async function cleanupMacOSAfterClose(appPath: string, bundleId: string) 
   }
   await unregisterFromLaunchServices(appPath);
   await removeSavedApplicationState(bundleId);
+}
+
+export function scheduleMacOSCleanupRetries(appPath: string, bundleId: string) {
+  const key = `${bundleId}:${appPath}`;
+  if (scheduledCleanupJobs.has(key)) {
+    return;
+  }
+
+  const delays = getCleanupRetryDelays();
+  const job = (async () => {
+    for (const delayMs of delays) {
+      await Bun.sleep(delayMs);
+      await cleanupMacOSAfterClose(appPath, bundleId);
+    }
+  })()
+    .catch((err: any) => {
+      log("warn", "cleanup", "Delayed Dock cleanup retries failed", err?.message || String(err));
+    })
+    .finally(() => {
+      scheduledCleanupJobs.delete(key);
+    });
+
+  scheduledCleanupJobs.set(key, job);
+}
+
+export function parseCleanupRetryDelays(raw: string | undefined) {
+  if (!raw || !raw.trim()) {
+    return [];
+  }
+  return raw
+    .split(",")
+    .map((part) => Number.parseInt(part.trim(), 10))
+    .filter((value) => Number.isInteger(value) && value >= 0);
+}
+
+function getCleanupRetryDelays() {
+  const parsed = parseCleanupRetryDelays(process.env.BW_USE_MACOS_CLEANUP_RETRY_DELAYS_MS);
+  return parsed.length > 0 ? parsed : DEFAULT_CLEANUP_RETRY_DELAYS_MS;
 }
 
 async function removeSavedApplicationState(bundleId: string) {
